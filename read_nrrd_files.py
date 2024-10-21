@@ -43,10 +43,10 @@ def list_images(data, axis):
 """    
 
 # Select example image -> reads image as numpy array
-readdata, header = nrrd.read('50kVp_0000.dcm.nrrd')
+readdata, header = nrrd.read('data/Baseline 15-05-2020 (0) - Mouse 5 - Separate Segmentations Muscle (1)/Baseline 15-05-2020 (0) - Mouse 5 - Separate Segmentations Muscle/50kVp_0000.dcm.nrrd')
 
 # Select the segmentation file
-segmentation = slicerio.read_segmentation('Segmentation.seg.nrrd')
+segmentation = slicerio.read_segmentation('data/Baseline 15-05-2020 (0) - Mouse 5 - Separate Segmentations Muscle (1)/Baseline 15-05-2020 (0) - Mouse 5 - Separate Segmentations Muscle/Segmentation.seg.nrrd')
 
 print("Shape of nrrd file", readdata.shape)
 # show_slice(readdata, 'z', 200)
