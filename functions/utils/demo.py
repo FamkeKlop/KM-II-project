@@ -11,6 +11,7 @@ from IPython.display import display
 from matplotlib import patches as patches
 from matplotlib import pyplot as plt
 from copy import deepcopy
+import nrrd
 
 def show_mask(mask, ax, random_color=False, alpha=0.95):
     if random_color:
@@ -120,6 +121,10 @@ class BboxPromptDemo:
                 for i, seg in enumerate(self.segs, start=1):
                     save_seg[seg > 0] = i
                 cv2.imwrite("segs.png", save_seg)
+                
+                # Saveas NRRD file:
+                nrrd.write("segs.nrrd", save_seg)
+                
                 print(f"Segmentation result saved to {getcwd()}")
         
         display(clear_button)

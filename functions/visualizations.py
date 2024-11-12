@@ -1,5 +1,7 @@
 import numpy as np
 import cv2
+import nibabel as nib
+
 
 slice_indx = 0
 
@@ -43,3 +45,13 @@ def on_scroll(event, x, y, flags, param):
             slice_indx -= 1
                 # Ensure the slice index is within the valid range
         slice_indx = update_slice(slice_indx, data)
+
+def load_data(image_path):
+    Nifti_img = nib.load(image_path)
+    nii_data = Nifti_img.get_fdata()
+    return nii_data
+
+def dice_coef(image_1, image_2):
+    intersection = np.sum(image_1 * image_2)
+    union = np.sum(image_1) + np.sum(image_2)
+    return intersection / union
