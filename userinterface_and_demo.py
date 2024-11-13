@@ -15,6 +15,8 @@ from tkinter import Canvas, filedialog, messagebox, font as tkFont
 from PIL import Image, ImageTk
 import nrrd
 import sys
+import nibabel as nib
+import copy
 
 # Import custom modules
 sys.path.append('functions/')
@@ -26,7 +28,7 @@ class App:
     def __init__(self, root, window_name="GUI for Segmentation"):
         self.root = root
         self.root.title(window_name)
-        self.root.geometry('800x500')
+        self.root.geometry('900x500')
         self.image = None  # To store the loaded image
         self.readdata = None  # To store the loaded NRRD data
         self.slice_index = 0  # Initialize slice index
@@ -66,8 +68,12 @@ class App:
         self.control_frame = tk.Frame(self.root)
         self.control_frame.pack(side=tk.LEFT, padx=20, pady=20, expand=True)
 
+        # Name of file_path title
+        self.title_label = tk.Label(self.control_frame, font=('Helvetica', 11, 'bold'))
+        self.title_label.pack(side='top', pady=(10, 5))
+
         # Load Image Button
-        self.load_button = tk.Button(self.control_frame, text="Load NRRD File", command=self.load_image_from_file, 
+        self.load_button = tk.Button(self.control_frame, text="Load NRRD or Nifti File", command=self.load_image_from_file, 
                                      bg='#abbdd9', font=self.button_font, width=18, height=2)
         self.load_button.pack(side=tk.TOP, pady=20)
 
@@ -94,11 +100,20 @@ class App:
         self.quit_button.pack(side=tk.BOTTOM, pady=20)
 
     def load_image_from_file(self):
-        """Load an image from an NRRD file and display the first slice."""
-        file_path = filedialog.askopenfilename(title="Select NRRD file", filetypes=[("NRRD files", "*.nrrd")])
+        """Load an image from an NRRD or NIFTI file and display the first slice."""
+        file_path = filedialog.askopenfilename(title="Select NRRD file", filetypes=[("NRRD files", "*.nrrd"), ("NIFTI files", "*.nii.gz")])
         
         if file_path:
-            self.readdata, header = nrrd.read(file_path)
+            if file_path.endswith('.nrrd'):
+                self.readdata, header = nrrd.read(file_path)
+            elif file_path.endswith('.nii.gz'):
+                nifti_image = nib.load(file_path)
+                self.readdata = nifti_image.get_fdata()
+            
+            # Extract file name for title and set title
+            file_name = file_path.split('/')[-1]
+            self.title_label.config(text=f'Image: {file_name}')
+            
             self.update_slider_range()
             self.display_slice(self.slice_index)
             self.change_plane_button.pack()  # Show Change Plane button
@@ -362,8 +377,11 @@ class BboxPromptDemoTkinter:
             save_seg = np.zeros_like(self.segs[0])
             for i, seg in enumerate(self.segs, start=1):
                 save_seg[seg > 0] = i
-            cv2.imwrite("segs.png", save_seg)
+            cv2.imwrite("gen_mask/segs.png", save_seg)
             messagebox.showinfo("Saved", "Segmentation result saved to segs.png")
+            
+        # Save as NRRD file
+        nrrd.write("segs.nrrd", save_seg)
 
     def show(self, image, random_color=True, alpha=0.65):
         """Display the image and run the segmentation demo."""
