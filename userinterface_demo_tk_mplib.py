@@ -17,6 +17,8 @@ import nrrd
 import sys
 import copy
 from copy import deepcopy
+import nibabel as nib
+
 
 # Import custom modules
 sys.path.append('functions/')
@@ -68,8 +70,12 @@ class App:
         self.control_frame = tk.Frame(self.root)
         self.control_frame.pack(side=tk.LEFT, padx=20, pady=20, expand=True)
 
+        # Name of file_path title
+        self.title_label = tk.Label(self.control_frame, font=('Helvetica', 11, 'bold'))
+        self.title_label.pack(side='top', pady=(10, 5))
+
         # Load Image Button
-        self.load_button = tk.Button(self.control_frame, text="Load NRRD File", command=self.load_image_from_file, 
+        self.load_button = tk.Button(self.control_frame, text="Load NRRD or Nifti File", command=self.load_image_from_file, 
                                      bg='#abbdd9', font=self.button_font, width=18, height=2)
         self.load_button.pack(side=tk.TOP, pady=20)
 
@@ -97,10 +103,19 @@ class App:
 
     def load_image_from_file(self):
         """Load an image from an NRRD file and display the first slice."""
-        file_path = filedialog.askopenfilename(title="Select NRRD file", filetypes=[("NRRD files", "*.nrrd")])
+        file_path = filedialog.askopenfilename(title="Select NRRD file", filetypes=[("NRRD files", "*.nrrd"), ("Nifti files", "*.nii.gz")])
         
         if file_path:
-            self.readdata, header = nrrd.read(file_path)
+            if file_path.endswith('.nrrd'):
+                self.readdata, header = nrrd.read(file_path)
+            elif file_path.endswith('.nii.gz'):
+                nifit_image = nib.load(file_path)
+                self.readdata = nifit_image.get_fdata()
+                
+            # Extract file name for title and set title
+            file_name = file_path.split('/')[-1]
+            self.title_label.config(text=f'Image: {file_name}')
+            
             self.update_slider_range()
             self.display_slice(self.slice_index)
             self.change_plane_button.pack()  # Show Change Plane button
@@ -212,7 +227,9 @@ class BboxPromptDemo:
 
         clear_button = widgets.Button(description="Clear", disabled=True)
         save_button = widgets.Button(description="Save", disabled=True)
-
+        
+        display(clear_button)
+        display(save_button)
 
         def __on_press(event):
             if event.inaxes == self.axes:
@@ -283,13 +300,16 @@ class BboxPromptDemo:
             self.fig.canvas.draw_idle()
 
         def __on_save_button_clicked(b):
-            plt.savefig("seg_result.png", bbox_inches='tight', pad_inches=0)
+            plt.savefig("segmentation_results/seg_result.png", bbox_inches='tight', pad_inches=0)
             if len(self.segs) > 0:
                 save_seg = np.zeros_like(self.segs[0])
                 for i, seg in enumerate(self.segs, start=1):
                     save_seg[seg > 0] = i
-                cv2.imwrite("segs.png", save_seg)
+                cv2.imwrite("segmentation_results/segs.png", save_seg)
                 print(f"Segmentation result saved to {getcwd()}")
+            
+            # Save results as NRRD file
+            nrrd.write("segmentation_results/segs.nrrd", save_seg)
         
         display(clear_button)
         clear_button.on_click(__on_clear_button_clicked)
