@@ -2,6 +2,8 @@ import gc
 import torch
 import numpy as np
 import cv2
+import matplotlib
+import matplotlib.pyplot as plt
 from torch.nn import functional as F
 from os import listdir, makedirs, getcwd
 from os.path import join, exists, isfile, isdir, basename
@@ -9,7 +11,8 @@ from glob import glob
 from ipywidgets import interact, widgets, FileUpload
 from IPython.display import display
 from matplotlib import patches as patches
-from matplotlib import pyplot as plt  # Import Matplotlib for plotting
+from matplotlib import pyplot as plt
+from matplotlib.widgets import Button
 import tkinter as tk
 from tkinter import Canvas, filedialog, messagebox, font as tkFont
 from PIL import Image, ImageTk
@@ -17,8 +20,6 @@ import nrrd
 import sys
 import copy
 from copy import deepcopy
-import nibabel as nib
-
 
 # Import custom modules
 sys.path.append('functions/')
@@ -30,7 +31,7 @@ class App:
     def __init__(self, root, window_name="GUI for Segmentation"):
         self.root = root
         self.root.title(window_name)
-        self.root.geometry('800x500')
+        self.root.geometry('850x600')
         self.image = None  # To store the loaded image
         self.readdata = None  # To store the loaded NRRD data
         self.slice_index = 0  # Initialize slice index
@@ -38,6 +39,9 @@ class App:
         self.current_image = None
         self.button_font = tkFont.Font(family="Helvetica", size=11)
         self.slice_rgb = None  # To store the specific slice for segmentation
+        self.selected_organ = None
+        self.begin_slice = None
+        self.end_slice = None
 
         # Load the MedSAM model
         MedSAM_CKPT_PATH = "work_dir/MedSAM/medsam_vit_b.pth"
@@ -53,76 +57,151 @@ class App:
         self.setup_ui_elements()
 
     def setup_ui_elements(self):
-        # Frame for the image and slider
-        self.frame = tk.Frame(self.root)
-        self.frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        # Main Frame for padding and root structure
+        self.main_frame = tk.Frame(self.root, padx=20, pady=10)  # Equal padding on both sides
+        self.main_frame.grid(sticky='nsew')
+        
+        # Configure grid weights to allow expansion but keep the Quit button pinned in the bottom right
+        self.main_frame.grid_columnconfigure(0, weight=1)
+        self.main_frame.grid_columnconfigure(1, weight=1)
+        self.main_frame.grid_rowconfigure(0, weight=1)
+        self.main_frame.grid_rowconfigure(1, weight=0)  # No extra weight for the last row with Quit button
+
+        # Left frame for controls and labels, with more padding to center it between the window and the image
+        self.left_frame = tk.Frame(self.main_frame, padx=10)  # Padding to center elements within this frame
+        self.left_frame.grid(row=0, column=0, sticky='n', padx=(0, 20), pady=(0, 10))  # Left frame centered more
+
+        # Load Image Button at the top left
+        self.load_button = tk.Button(self.left_frame, text="Load NRRD or Nifti File",
+                                    command=self.load_image_from_file, bg='#abbdd9',
+                                    font=self.button_font, width=18, height=2)
+        self.load_button.grid(row=0, column=0, pady=(10, 5), sticky="w")
+
+        # File Path Title Label below the Load Button, centered
+        self.title_label = tk.Label(self.left_frame, font=('Helvetica', 11, 'bold'))
+        self.title_label.grid(row=1, column=0, pady=(0, 20), sticky="w")
+        self.title_label.grid_remove()
+
+        # Label for "Choose organ to segment"
+        self.organ_label = tk.Label(self.left_frame, text="Choose organ to segment", font=('Helvetica', 10))
+        self.organ_label.grid(row=2, column=0, pady=(5, 5), sticky="w")
+        self.organ_label.grid_remove()
+
+        # Text entry for organ input
+        self.organ_entry = tk.Entry(self.left_frame, width=20)
+        self.organ_entry.grid(row=3, column=0, pady=(0, 10), sticky="w")
+        self.organ_entry.grid_remove()
+
+        # 'Submit' button next to organ_entry
+        self.submit_organ_button = tk.Button(self.left_frame, text="Submit", command=self.set_organ, height=1)
+        self.submit_organ_button.grid(row=3, column=1, padx=(5, 0), sticky="w")
+        self.submit_organ_button.grid_remove()
+
+        # Label for "Selected organ is ..."
+        self.selected_organ_label = tk.Label(self.left_frame, text="Selected organ is ", font=('Helvetica', 10))
+        self.selected_organ_label.grid(row=4, column=0, pady=(5, 5), sticky="w")
+        self.selected_organ_label.grid_remove()
+
+        # Frame for "Begin" and "End" integer entries
+        self.range_frame = tk.Frame(self.left_frame)
+        self.range_frame.grid(row=5, column=0, sticky="w", pady=(5, 10))
+
+        # Begin Label and Entry
+        self.begin_label = tk.Label(self.range_frame, text="Begin slice", font=('Helvetica', 9))
+        self.begin_label.grid(row=0, column=0, padx=(0, 10), sticky="w")
+        self.begin_label.grid_remove()
+        self.begin_entry = tk.Entry(self.range_frame, width=5)
+        self.begin_entry.grid(row=1, column=0, padx=(0, 10), sticky="w")
+        self.begin_entry.grid_remove()
+
+        # End Label and Entry
+        self.end_label = tk.Label(self.range_frame, text="End slice", font=('Helvetica', 9))
+        self.end_label.grid(row=0, column=1, padx=(10, 0), sticky="w")
+        self.end_label.grid_remove()
+        self.end_entry = tk.Entry(self.range_frame, width=5)
+        self.end_entry.grid(row=1, column=1, padx=(10, 0), sticky="w")
+        self.end_entry.grid_remove()
+
+        # 'Submit' button for slice range
+        self.submit_range_button = tk.Button(self.range_frame, text="Submit", command=self.set_organ_range, height=1)
+        self.submit_range_button.grid(row=1, column=2, padx=(5, 0), sticky="w")
+        self.submit_range_button.grid_remove()
+
+        # Label for "Slice range of organ is ..."
+        self.organ_range_label = tk.Label(self.left_frame, text="Slice range of organ is ", font=('Helvetica', 10))
+        self.organ_range_label.grid(row=6, column=0, pady=(5, 5), sticky="w")
+        self.organ_range_label.grid_remove()
+
+        # Start Segmentation Button aligned to the bottom left
+        self.segmentation_button = tk.Button(self.left_frame, text="Start Segmentation",
+                                            command=self.start_segmentation,
+                                            bg='#b8cfb9', font=self.button_font, width=18, height=2)
+        self.segmentation_button.grid(row=7, column=0, pady=(5, 20), sticky="sw")
+        self.segmentation_button.grid_remove()
+
+        # Right frame for image and related controls
+        self.image_frame = tk.Frame(self.main_frame)
+        self.image_frame.grid(row=0, column=1, sticky='ne', padx=(10, 20), pady=(10, 10))  # Adjusted right padding
 
         # Canvas to display the image
-        self.canvas = tk.Canvas(self.frame, width=500, height=400)
-        self.canvas.pack(fill=tk.X, side=tk.TOP)
+        self.canvas = tk.Canvas(self.image_frame, width=500, height=400)
+        self.canvas.grid(row=0, column=0, sticky='n')
 
-        # Slider for selecting slice index
-        self.slice_slider = tk.Scale(self.frame, from_=0, to=0, orient=tk.HORIZONTAL, command=self.update_slice)
-        self.slice_slider.pack()
-        self.slice_slider.pack_forget()
+        # Frame for slider and plane control buttons, below the image
+        self.slider_control_frame = tk.Frame(self.image_frame)
+        self.slider_control_frame.grid(row=1, column=0, sticky='ew', pady=(10, 5))
 
-        # Control frame for buttons and labels
-        self.control_frame = tk.Frame(self.root)
-        self.control_frame.pack(side=tk.LEFT, padx=20, pady=20, expand=True)
+        # Change Plane Button on the left in slider control frame
+        self.change_plane_button = tk.Button(self.slider_control_frame, text="Change Plane",
+                                            command=self.change_plane, bg='#D3D3D3',
+                                            font=self.button_font, width=10, height=1)
+        self.change_plane_button.grid(row=0, column=0, sticky="w", padx=(0, 5))
+        self.change_plane_button.grid_remove()
 
-        # Name of file_path title
-        self.title_label = tk.Label(self.control_frame, font=('Helvetica', 11, 'bold'))
-        self.title_label.pack(side='top', pady=(10, 5))
+        # Slider, next to Change Plane button, with a larger width to reach the right side
+        self.slice_slider = tk.Scale(self.slider_control_frame, from_=0, to=0, orient=tk.HORIZONTAL,
+                                    command=self.update_slice, length=400)
+        self.slice_slider.grid(row=0, column=1, sticky="e")
+        self.slice_slider.grid_remove()
 
-        # Load Image Button
-        self.load_button = tk.Button(self.control_frame, text="Load NRRD or Nifti File", command=self.load_image_from_file, 
-                                     bg='#abbdd9', font=self.button_font, width=18, height=2)
-        self.load_button.pack(side=tk.TOP, pady=20)
+        # Current Plane Label below the slider and change plane button
+        self.current_plane_label = tk.Label(self.image_frame,
+                                            font=tkFont.Font(family="Helvetica", size=10, slant='italic'))
+        self.current_plane_label.grid(row=2, column=0, pady=(5, 20), sticky="n")
+        self.current_plane_label.grid_remove()
 
-        # Change Plane Button
-        self.change_plane_button = tk.Button(self.control_frame, text="Change Plane", command=self.change_plane, 
-                                             bg='#f5f3d5', font=self.button_font, width=18, height=2)
-        self.change_plane_button.pack(pady=10)
-        self.change_plane_button.pack_forget()  # Hide initially
+        # Quit Button at the right bottom corner
+        self.quit_button = tk.Button(self.main_frame, text="Quit", command=self.root.quit,
+                                    bg='#3b3a3a', fg='#ffffff', font=self.button_font, width=18, height=2)
+        self.quit_button.grid(row=1, column=1, sticky='se', padx=(0, 20), pady=(0, 10))
 
-        # Current Plane Label
-        self.current_plane_label = tk.Label(self.control_frame, font=tkFont.Font(family="Helvetica", size=10, slant='italic'))
-        self.current_plane_label.pack(pady=20)
-        self.current_plane_label.pack_forget()  # Hide initially
-
-        # Start Segmentation Button
-        self.segmentation_button = tk.Button(self.control_frame, text="Start Segmentation", command=self.start_segmentation,
-                                             bg='#b8cfb9', font=self.button_font, width=18, height=2)
-        self.segmentation_button.pack()
-        self.segmentation_button.pack_forget()
-
-        # Quit Button
-        self.quit_button = tk.Button(self.control_frame, text="Quit", command=self.root.quit, 
-                                     bg='#3b3a3a', fg='#ffffff', font=self.button_font, width=18, height=2)
-        self.quit_button.pack(side=tk.BOTTOM, pady=20)
 
     def load_image_from_file(self):
-        """Load an image from an NRRD file and display the first slice."""
-        file_path = filedialog.askopenfilename(title="Select NRRD file", filetypes=[("NRRD files", "*.nrrd"), ("Nifti files", "*.nii.gz")])
+        """Load an image from an NRRD or NIFTI file and display the first slice."""
+        file_path = filedialog.askopenfilename(title="Select NRRD file", filetypes=[("NRRD files", "*.nrrd"), ("NIFTI files", "*.nii.gz")])
         
         if file_path:
             if file_path.endswith('.nrrd'):
                 self.readdata, header = nrrd.read(file_path)
             elif file_path.endswith('.nii.gz'):
-                nifit_image = nib.load(file_path)
-                self.readdata = nifit_image.get_fdata()
-                
+                nifti_image = nib.load(file_path)
+                self.readdata = nifti_image.get_fdata()
+            
             # Extract file name for title and set title
             file_name = file_path.split('/')[-1]
             self.title_label.config(text=f'Image: {file_name}')
             
             self.update_slider_range()
             self.display_slice(self.slice_index)
-            self.change_plane_button.pack()  # Show Change Plane button
-            self.current_plane_label.pack()  # Show Current Plane label
             self.update_current_plane_label()  # Update plane label
-            self.segmentation_button.pack(pady=20)
-            self.slice_slider.pack(fill=tk.X, padx=20)
+            self.title_label.grid()
+            self.change_plane_button.grid()
+            self.slice_slider.grid()
+            self.current_plane_label.grid()
+            self.organ_label.grid()
+            self.organ_entry.grid()
+            self.submit_organ_button.grid()
+
 
     def update_slider_range(self):
         """Update the slider range based on the current plane."""
@@ -180,9 +259,44 @@ class App:
         self.canvas.create_image(0, 0, anchor="nw", image=self.current_image)
         self.canvas.image = self.current_image
 
+    def set_organ(self):
+        """Update the selected organ label with the value from the organ_entry."""
+        self.selected_organ = self.organ_entry.get()
+        new_text = 'Selected organ is ' + self.selected_organ
+        self.selected_organ_label.config(text=new_text)
+        self.selected_organ_label.grid()
+        self.begin_label.grid()
+        self.begin_entry.grid()
+        self.end_label.grid()
+        self.end_entry.grid()
+        self.submit_range_button.grid()
+        self.organ_range_label.grid_remove()
+
+        # Remove previous information
+        self.begin_entry.delete(0, tk.END)
+        self.end_entry.delete(0, tk.END)
+        self.begin_slice = None
+        self.end_slice = None
+        self.segmentation_button.grid_remove()
+
+
+    def set_organ_range(self):
+        self.begin_slice = self.begin_entry.get()
+        self.end_slice = self.end_entry.get()
+
+        new_text = "Slice range of " + self.selected_organ + ' is [' + self.begin_slice + ', ' + self.end_slice + ']'
+        self.organ_range_label.config(text=new_text)
+        self.organ_range_label.grid()
+
+        self.segmentation_button.grid()
+ 
     def start_segmentation(self):
         if self.readdata is not None:
-            # print(self.slice_rgb.shape)
+            middle_slice = int((float(self.end_slice) - float(self.begin_slice))/2 + float(self.begin_slice))
+
+            self.slice_index = middle_slice
+            self.slice_slider.set(self.slice_index)
+            self.display_slice(self.slice_index)
 
             bbox_prompt_demo = BboxPromptDemo(self.medsam_model)
             bbox_prompt_demo.show(self.slice_rgb)
@@ -225,11 +339,14 @@ class BboxPromptDemo:
         self.axes.imshow(self.image)
         self.axes.axis('off')
 
-        clear_button = widgets.Button(description="Clear", disabled=True)
-        save_button = widgets.Button(description="Save", disabled=True)
-        
-        display(clear_button)
-        display(save_button)
+        clear_ax = self.fig.add_axes([0.1, 0.05, 0.3, 0.075])
+        save_ax = self.fig.add_axes([0.7, 0.05, 0.2, 0.075])
+
+        clear_button = matplotlib.widgets.Button(clear_ax, 'Retry segmentation')
+        save_button = matplotlib.widgets.Button(save_ax, "Save mask")
+
+        clear_button.ax.set_visible(False)
+        save_button.ax.set_visible(False)
 
         def __on_press(event):
             if event.inaxes == self.axes:
@@ -267,9 +384,8 @@ class BboxPromptDemo:
                     self.rect = None
                     gc.collect()
 
-                    save_button(disabled=False)
-
-                    
+                    clear_button.ax.set_visible(True)
+                    save_button.ax.set_visible(True)
 
         def __on_motion(event):
             if event.inaxes == self.axes:
@@ -287,8 +403,7 @@ class BboxPromptDemo:
                     self.rect.set_height(rect_height)
                     self.fig.canvas.draw_idle()
 
-        # clear_button = widgets.Button(description="Clear")
-        def __on_clear_button_clicked(b):
+        def __on_clear_button_clicked(event):
             for i in range(len(self.axes.images)):
                 self.axes.images[0].remove()
             self.axes.clear()
@@ -298,22 +413,20 @@ class BboxPromptDemo:
                 self.axes.patches[0].remove()
             self.segs = []
             self.fig.canvas.draw_idle()
+            clear_button.ax.set_visible(False)
+            save_button.ax.set_visible(False)
 
-        def __on_save_button_clicked(b):
-            plt.savefig("segmentation_results/seg_result.png", bbox_inches='tight', pad_inches=0)
+        def __on_save_button_clicked(event):
+            plt.savefig("seg_result.png", bbox_inches='tight', pad_inches=0)
             if len(self.segs) > 0:
                 save_seg = np.zeros_like(self.segs[0])
                 for i, seg in enumerate(self.segs, start=1):
                     save_seg[seg > 0] = i
-                cv2.imwrite("segmentation_results/segs.png", save_seg)
+                cv2.imwrite("segs.png", save_seg)
                 print(f"Segmentation result saved to {getcwd()}")
-            
-            # Save results as NRRD file
-            nrrd.write("segmentation_results/segs.nrrd", save_seg)
-        
-        display(clear_button)
-        clear_button.on_click(__on_clear_button_clicked)
-        save_button.on_click(__on_save_button_clicked)
+
+        clear_button.on_clicked(__on_clear_button_clicked)
+        save_button.on_clicked(__on_save_button_clicked)
 
 
         self.fig.canvas.mpl_connect('button_press_event', __on_press)
@@ -321,8 +434,6 @@ class BboxPromptDemo:
         self.fig.canvas.mpl_connect('button_release_event', __on_release)
 
         plt.show()
-
-        # display(save_button)
         
     def show(self, image, fig_size=5, random_color=True, alpha=0.65):
         # Check if image is a string (file path) or a NumPy array
