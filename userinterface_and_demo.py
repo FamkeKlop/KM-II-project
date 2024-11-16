@@ -304,13 +304,16 @@ class BboxPromptDemoTkinter:
             self.x1, self.y1 = event.x, event.y
             self.currently_selecting = False
             
+            scale_x = self.img_size[1] / self.canvas.winfo_width()
+            scale_y = self.img_size[0] / self.canvas.winfo_height()
+            
             # Draw and update the bounding box
-            x_min = min(self.x0, self.x1)
-            x_max = max(self.x0, self.x1)
-            y_min = min(self.y0, self.y1)
-            y_max = max(self.y0, self.y1)
+            x_min = min(self.x0, self.x1) * scale_x
+            x_max = max(self.x0, self.x1) * scale_x
+            y_min = min(self.y0, self.y1) * scale_y
+            y_max = max(self.y0, self.y1) * scale_y
             bbox = np.array([x_min, y_min, x_max, y_max])
-
+            print(bbox)
             # Perform segmentation on the bounding box
             with torch.no_grad():
                 seg = self._infer(bbox)
@@ -354,15 +357,41 @@ class BboxPromptDemoTkinter:
         medsam_seg = (low_res_pred > 0.5).astype(np.uint8)
         return medsam_seg
 
-    def show_mask(self, mask):
+    def show_mask(self, mask, random_color=True, alpha=0.95):
         """Display the segmentation mask on the canvas."""
-        mask = Image.fromarray(mask * 255)
-        mask = mask.convert("RGBA")
-        img = Image.fromarray(self.image)
-        img = img.convert("RGBA")
-        img.paste(mask, (0, 0), mask)
-        self.tk_image = ImageTk.PhotoImage(img)
-        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
+        
+        if random_color:
+            color = (np.random.randint(0, 256), 
+                 np.random.randint(0, 256), 
+                 np.random.randint(0, 256), 
+                 int(alpha * 255))        
+        else:
+            color = (251, 252, 30, int(alpha * 255))  # Default yellowish color with alpha        
+        
+        h, w = mask.shape
+        mask_rgba = np.zeros((h, w, 4), dtype=np.uint8)
+        mask_rgba[..., :3] = np.array(color[:3])
+        mask_rgba[..., 3] = (mask * color[3]).astype(np.uint8)
+        
+        mask_image = Image.fromarray(mask_rgba, mode="RGBA")
+        
+        img = Image.fromarray(self.image).convert("RGBA")
+        combined = Image.alpha_composite(img, mask_image)
+        
+        tk_image = ImageTk.PhotoImage(combined.resize(
+        (self.canvas.winfo_width(), self.canvas.winfo_height()),
+        Image.Resampling.LANCZOS))
+        
+        self.canvas.create_image(0, 0, anchor=tk.NW, image=tk_image)
+        self.tk_image = tk_image
+        
+        # mask = Image.fromarray(mask * 255)
+        # mask = mask.convert("RGBA")
+        # img = Image.fromarray(self.image)
+        # img = img.convert("RGBA")
+        # img.paste(mask, (0, 0), mask)
+        # self.tk_image = ImageTk.PhotoImage(img)
+        # self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
 
     def clear(self):
         """Clear the canvas and reset the selections."""
