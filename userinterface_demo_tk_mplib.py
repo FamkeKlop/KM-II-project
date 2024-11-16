@@ -323,136 +323,26 @@ class BboxPromptDemo:
         self.currently_selecting = False
         self.x0, self.y0, self.x1, self.y1 = 0., 0., 0., 0.
         self.rect = None
-        self.fig, self.axes = None, None
         self.segs = []
-
-    def _show(self, fig_size=5, random_color=True, alpha=0.65):
-        assert self.image is not None, "Please set image first."
-
-        self.fig, self.axes = plt.subplots(1, 1, figsize=(fig_size, fig_size))
-        self.fig.canvas.header_visible = False
-        self.fig.canvas.footer_visible = False
-        self.fig.canvas.toolbar_visible = False
-        self.fig.canvas.resizable = False
-
-        plt.tight_layout()
-        self.axes.imshow(self.image)
-        self.axes.axis('off')
-
-        clear_ax = self.fig.add_axes([0.1, 0.05, 0.3, 0.075])
-        save_ax = self.fig.add_axes([0.7, 0.05, 0.2, 0.075])
-
-        clear_button = matplotlib.widgets.Button(clear_ax, 'Retry segmentation')
-        save_button = matplotlib.widgets.Button(save_ax, "Save mask")
-
-        clear_button.ax.set_visible(False)
-        save_button.ax.set_visible(False)
-
-        def __on_press(event):
-            if event.inaxes == self.axes:
-                self.x0 = float(event.xdata) 
-                self.y0 = float(event.ydata)
-                self.currently_selecting = True
-                self.rect = plt.Rectangle(
-                    (self.x0, self.y0),
-                    1,1, linestyle="--",
-                    edgecolor="crimson", fill=False
-                )
-                self.axes.add_patch(self.rect)
-                self.rect.set_visible(True)
-
-        def __on_release(event):
-            if event.inaxes == self.axes:
-                if self.currently_selecting:
-                    self.x1 = float(event.xdata)
-                    self.y1 = float(event.ydata)
-                    self.fig.canvas.draw_idle()
-                    self.currently_selecting = False
-                    self.rect.set_visible(False)
-                    self.axes.patches[0].remove()
-                    x_min = min(self.x0, self.x1)
-                    x_max = max(self.x0, self.x1)
-                    y_min = min(self.y0, self.y1)
-                    y_max = max(self.y0, self.y1)
-                    bbox = np.array([x_min, y_min, x_max, y_max])
-                    with torch.no_grad():
-                        seg = self._infer(bbox)
-                        torch.cuda.empty_cache()
-                    show_mask(seg, self.axes, random_color=random_color, alpha=alpha)
-                    self.segs.append(deepcopy(seg))
-                    del seg
-                    self.rect = None
-                    gc.collect()
-
-                    clear_button.ax.set_visible(True)
-                    save_button.ax.set_visible(True)
-
-        def __on_motion(event):
-            if event.inaxes == self.axes:
-                if self.currently_selecting:
-                    self.x1 = float(event.xdata)
-                    self.y1 = float(event.ydata)
-                    #add rectangle for selection here
-                    self.rect.set_visible(True)
-                    xlim = np.sort([self.x0, self.x1])
-                    ylim = np.sort([self.y0, self.y1])
-                    self.rect.set_xy((xlim[0],ylim[0] ) )
-                    rect_width = np.diff(xlim)[0]
-                    self.rect.set_width(rect_width)
-                    rect_height = np.diff(ylim)[0]
-                    self.rect.set_height(rect_height)
-                    self.fig.canvas.draw_idle()
-
-        def __on_clear_button_clicked(event):
-            for i in range(len(self.axes.images)):
-                self.axes.images[0].remove()
-            self.axes.clear()
-            self.axes.axis('off')
-            self.axes.imshow(self.image)
-            if len(self.axes.patches) > 0:
-                self.axes.patches[0].remove()
-            self.segs = []
-            self.fig.canvas.draw_idle()
-            clear_button.ax.set_visible(False)
-            save_button.ax.set_visible(False)
-
-        def __on_save_button_clicked(event):
-            plt.savefig("seg_result.png", bbox_inches='tight', pad_inches=0)
-            if len(self.segs) > 0:
-                save_seg = np.zeros_like(self.segs[0])
-                for i, seg in enumerate(self.segs, start=1):
-                    save_seg[seg > 0] = i
-                cv2.imwrite("segs.png", save_seg)
-                print(f"Segmentation result saved to {getcwd()}")
-
-        clear_button.on_clicked(__on_clear_button_clicked)
-        save_button.on_clicked(__on_save_button_clicked)
-
-
-        self.fig.canvas.mpl_connect('button_press_event', __on_press)
-        self.fig.canvas.mpl_connect('motion_notify_event', __on_motion)
-        self.fig.canvas.mpl_connect('button_release_event', __on_release)
-
-        plt.show()
         
-    def show(self, image, fig_size=5, random_color=True, alpha=0.65):
-        # Check if image is a string (file path) or a NumPy array
-        if isinstance(image, str):
-            # Use set_image_path only for file paths
-            self.set_image_path(image)
-        elif isinstance(image, np.ndarray):
-            # Directly set the image if it's a NumPy array
-            self._set_image(image)
-        else:
-            raise ValueError("Input must be a file path or a NumPy array.")
-    
-        self._show(fig_size=fig_size, random_color=random_color, alpha=alpha)
+        self.window = tk.Toplevel()
+        self.window.title("Bounding Box Segmentation")
+        
+        self.canvas = tk.Canvas(self.window)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        
+        self.clear_button = tk.Button(self.window, text="Clear", command=self.clear)
+        self.clear_button.pack(side=tk.LEFT)
+        
+        self.save_button = tk.Button(self.window, text="Save", command=self.save)
+        self.save_button.pack(side=tk.LEFT)
+        
+        self.canvas.bind("<ButtonPress-1>", self.on_press)
+        self.canvas.bind("<B1-Motion>", self.on_motion)
+        self.canvas.bind("<ButtonRelease-1>", self.on_release)
+        
+        self.window.protocol("WM_DELETE_WINDOW", self.on_close)
 
-    def set_image_path(self, image_path):
-        image = cv2.imread(image_path)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        self._set_image(image)
-    
     def _set_image(self, image):
         self.image = image
         self.img_size = image.shape[:2]
@@ -460,22 +350,62 @@ class BboxPromptDemo:
         with torch.no_grad():
             self.image_embeddings = self.model.image_encoder(image_preprocess)
 
-    def _preprocess_image(self, image):
-        img_resize = cv2.resize(
-            image,
-            (1024, 1024),
-            interpolation=cv2.INTER_CUBIC
-        )
-        # Resizing
-        img_resize = (img_resize - img_resize.min()) / np.clip(img_resize.max() - img_resize.min(), a_min=1e-8, a_max=None) # normalize to [0, 1], (H, W, 3
-        # convert the shape to (3, H, W)
-        assert np.max(img_resize)<=1.0 and np.min(img_resize)>=0.0, 'image should be normalized to [0, 1]'
-        img_tensor = torch.tensor(img_resize).float().permute(2, 0, 1).unsqueeze(0).to(self.model.device)
+        # Display the image in the Tkinter canvas
+        self.display_image(image)
 
-        return img_tensor
-    
-    @torch.no_grad()
+    def display_image(self, image):
+        """Display the image on the Tkinter canvas."""
+        if image.dtype != np.uint8:
+            image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX)
+            image = np.uint8(image)
+
+        pil_image = Image.fromarray(image)
+        tk_image = pil_image.resize((self.canvas.winfo_width(), self.canvas.winfo_height()))
+        self.tk_image = ImageTk.PhotoImage(tk_image)
+        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
+        self.canvas.image = self.tk_image
+        self.window.image = self.tk_image
+
+    def on_press(self, event):
+        """Called when the mouse button is pressed to start bounding box selection."""
+        self.x0, self.y0 = event.x, event.y
+        self.currently_selecting = True
+        self.rect = self.canvas.create_rectangle(self.x0, self.y0, self.x0, self.y0, outline="crimson", width=2)
+
+    def on_motion(self, event):
+        """Called when the mouse is moved during bounding box selection."""
+        if self.currently_selecting:
+            self.x1, self.y1 = event.x, event.y
+            self.canvas.coords(self.rect, self.x0, self.y0, self.x1, self.y1)
+
+    def on_release(self, event):
+        """Called when the mouse button is released to finalize bounding box."""
+        if self.currently_selecting:
+            self.x1, self.y1 = event.x, event.y
+            self.currently_selecting = False
+            
+            scale_x = self.img_size[1] / self.canvas.winfo_width()
+            scale_y = self.img_size[0] / self.canvas.winfo_height()
+            
+            # Draw and update the bounding box
+            x_min = min(self.x0, self.x1) * scale_x
+            x_max = max(self.x0, self.x1) * scale_x
+            y_min = min(self.y0, self.y1) * scale_y
+            y_max = max(self.y0, self.y1) * scale_y
+            bbox = np.array([x_min, y_min, x_max, y_max])
+            print(bbox)
+            # Perform segmentation on the bounding box
+            with torch.no_grad():
+                seg = self._infer(bbox)
+                torch.cuda.empty_cache()
+
+            self.show_mask(seg)
+            self.segs.append(copy.deepcopy(seg))
+            self.rect = None
+            gc.collect()
+
     def _infer(self, bbox):
+        """Perform inference to generate the segmentation mask."""
         ori_H, ori_W = self.img_size
         scale_to_1024 = 1024 / np.array([ori_W, ori_H, ori_W, ori_H])
         bbox_1024 = bbox * scale_to_1024
@@ -489,15 +419,14 @@ class BboxPromptDemo:
             masks=None,
         )
         low_res_logits, _ = self.model.mask_decoder(
-            image_embeddings = self.image_embeddings, # (B, 256, 64, 64)
-            image_pe = self.model.prompt_encoder.get_dense_pe(), # (1, 256, 64, 64)
-            sparse_prompt_embeddings = sparse_embeddings, # (B, 2, 256)
-            dense_prompt_embeddings=dense_embeddings, # (B, 256, 64, 64)
+            image_embeddings=self.image_embeddings,  # (B, 256, 64, 64)
+            image_pe=self.model.prompt_encoder.get_dense_pe(),  # (1, 256, 64, 64)
+            sparse_prompt_embeddings=sparse_embeddings,  # (B, 2, 256)
+            dense_prompt_embeddings=dense_embeddings,  # (B, 256, 64, 64)
             multimask_output=False,
-            )
+        )
 
         low_res_pred = torch.sigmoid(low_res_logits)  # (1, 1, 256, 256)
-
         low_res_pred = F.interpolate(
             low_res_pred,
             size=self.img_size,
@@ -507,7 +436,89 @@ class BboxPromptDemo:
         low_res_pred = low_res_pred.squeeze().cpu().numpy()  # (256, 256)
         medsam_seg = (low_res_pred > 0.5).astype(np.uint8)
         return medsam_seg
-    
+
+    def show_mask(self, mask, random_color=True, alpha=0.95):
+        """Display the segmentation mask on the canvas."""
+        
+        if random_color:
+            color = (np.random.randint(0, 256), 
+                 np.random.randint(0, 256), 
+                 np.random.randint(0, 256), 
+                 int(alpha * 255))        
+        else:
+            color = (251, 252, 30, int(alpha * 255))  # Default yellowish color with alpha        
+        
+        h, w = mask.shape
+        mask_rgba = np.zeros((h, w, 4), dtype=np.uint8)
+        mask_rgba[..., :3] = np.array(color[:3])
+        mask_rgba[..., 3] = (mask * color[3]).astype(np.uint8)
+        
+        mask_image = Image.fromarray(mask_rgba, mode="RGBA")
+        
+        img = Image.fromarray(self.image).convert("RGBA")
+        combined = Image.alpha_composite(img, mask_image)
+        
+        tk_image = ImageTk.PhotoImage(combined.resize(
+        (self.canvas.winfo_width(), self.canvas.winfo_height()),
+        Image.Resampling.LANCZOS))
+        
+        self.canvas.create_image(0, 0, anchor=tk.NW, image=tk_image)
+        self.tk_image = tk_image
+        
+        # mask = Image.fromarray(mask * 255)
+        # mask = mask.convert("RGBA")
+        # img = Image.fromarray(self.image)
+        # img = img.convert("RGBA")
+        # img.paste(mask, (0, 0), mask)
+        # self.tk_image = ImageTk.PhotoImage(img)
+        # self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
+
+    def clear(self):
+        """Clear the canvas and reset the selections."""
+        self.canvas.delete("all")
+        if self.image is not None:
+            self.display_image(self.image)
+        self.segs = []
+
+    def save(self):
+        """Save the segmentation results."""
+        if self.segs:
+            save_seg = np.zeros_like(self.segs[0])
+            for i, seg in enumerate(self.segs, start=1):
+                save_seg[seg > 0] = i
+            cv2.imwrite("gen_mask/segs.png", save_seg)
+            messagebox.showinfo("Saved", "Segmentation result saved to segs.png")
+            
+        # Save as NRRD file
+        nrrd.write("segs.nrrd", save_seg)
+
+    def show(self, image, random_color=True, alpha=0.65):
+        """Display the image and run the segmentation demo."""
+        if isinstance(image, str):
+            self.set_image_path(image)
+        elif isinstance(image, np.ndarray):
+            self._set_image(image)
+        else:
+            raise ValueError("Input must be a file path or a NumPy array.")
+        
+        self.window.mainloop()
+
+    def set_image_path(self, image_path):
+        """Load image from file path and set."""
+        image = cv2.imread(image_path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        self._set_image(image)
+
+    def _preprocess_image(self, image):
+        """Preprocess the image for the model."""
+        img_resize = cv2.resize(image, (1024, 1024), interpolation=cv2.INTER_CUBIC)
+        img_resize = (img_resize - img_resize.min()) / np.clip(img_resize.max() - img_resize.min(), a_min=1e-8, a_max=None)
+        img_tensor = torch.tensor(img_resize).float().permute(2, 0, 1).unsqueeze(0).to(self.model.device)
+        return img_tensor
+
+    def on_close(self):
+        """Handle the window close event."""
+        self.window.destroy()
 
 # Main section to start the Tkinter app
 if __name__ == "__main__":
