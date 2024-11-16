@@ -202,6 +202,17 @@ class App:
             self.organ_entry.grid()
             self.submit_organ_button.grid()
 
+            #Remove all previous visible widgets
+            self.organ_entry.delete(0, tk.END)
+            self.selected_organ_label.grid_remove()
+            self.organ_range_label.grid_remove()
+            self.begin_entry.grid_remove()
+            self.begin_label.grid_remove()
+            self.end_entry.grid_remove()
+            self.end_label.grid_remove()
+            self.submit_range_button.grid_remove()
+            self.segmentation_button.grid_remove()
+
 
     def update_slider_range(self):
         """Update the slider range based on the current plane."""
@@ -261,9 +272,24 @@ class App:
 
     def set_organ(self):
         """Update the selected organ label with the value from the organ_entry."""
+
         self.selected_organ = self.organ_entry.get()
+
+        # Check if organ is filled in in entry
+        if not self.selected_organ.strip():
+            self.selected_organ_label.config(text = 'Warning: No organ has been defined', foreground = 'red')
+            self.selected_organ_label.grid()
+            self.organ_range_label.grid_remove()
+            self.begin_entry.grid_remove()
+            self.begin_label.grid_remove()
+            self.end_entry.grid_remove()
+            self.end_label.grid_remove()
+            self.submit_range_button.grid_remove()
+            self.segmentation_button.grid_remove()
+            return
+
         new_text = 'Selected organ is ' + self.selected_organ
-        self.selected_organ_label.config(text=new_text)
+        self.selected_organ_label.config(text=new_text, foreground = 'black')
         self.selected_organ_label.grid()
         self.begin_label.grid()
         self.begin_entry.grid()
@@ -279,13 +305,31 @@ class App:
         self.end_slice = None
         self.segmentation_button.grid_remove()
 
-
     def set_organ_range(self):
         self.begin_slice = self.begin_entry.get()
         self.end_slice = self.end_entry.get()
 
+        #Apply some debugging
+        if not self.begin_slice.strip() or not self.end_slice.strip():
+            self.organ_range_label.config(text = 'Warning: No slice range is defined', foreground = 'red')
+            self.organ_range_label.grid()
+            self.segmentation_button.grid_remove()
+            return
+        
+        if not self.begin_slice.isdigit() or not self.end_slice.isdigit():
+            self.organ_range_label.config(text = 'Warning: Slice should be an integer', foreground = 'red')
+            self.organ_range_label.grid()
+            self.segmentation_button.grid_remove()
+            return
+        
+        if int(self.begin_slice) > int(self.end_slice):
+            self.organ_range_label.config(text = 'Warning: Begin slice > End slice', foreground = 'red')
+            self.organ_range_label.grid()
+            self.segmentation_button.grid_remove()
+            return
+
         new_text = "Slice range of " + self.selected_organ + ' is [' + self.begin_slice + ', ' + self.end_slice + ']'
-        self.organ_range_label.config(text=new_text)
+        self.organ_range_label.config(text=new_text, foreground = 'black')
         self.organ_range_label.grid()
 
         self.segmentation_button.grid()
@@ -298,7 +342,7 @@ class App:
             self.slice_slider.set(self.slice_index)
             self.display_slice(self.slice_index)
 
-            bbox_prompt_demo = BboxPromptDemo(self.medsam_model)
+            bbox_prompt_demo = BboxPromptDemo(self.medsam_model, self.readdata, self.begin_slice, self.end_slice, self.current_plane)
             bbox_prompt_demo.show(self.slice_rgb)
 
 
@@ -313,17 +357,22 @@ def show_mask(mask, ax, random_color=False, alpha=0.95):
 
 #ORIGINAL:
 class BboxPromptDemo:
-    def __init__(self, model):
+    def __init__(self, model, data, begin_slice, end_slice, plane):
         self.model = model
         self.model.eval()
+        self.readdata = data
         self.image = None
         self.image_embeddings = None
         self.img_size = None
+        self.begin_slice = begin_slice
+        self.end_slice = end_slice
+        self.plane = plane
         self.gt = None
         self.currently_selecting = False
         self.x0, self.y0, self.x1, self.y1 = 0., 0., 0., 0.
         self.rect = None
         self.segs = []
+        self.bbox = None
         
         self.window = tk.Toplevel()
         self.window.title("Bounding Box Segmentation")
@@ -333,9 +382,11 @@ class BboxPromptDemo:
         
         self.clear_button = tk.Button(self.window, text="Clear", command=self.clear)
         self.clear_button.pack(side=tk.LEFT)
+        self.clear_button.pack_forget()
         
         self.save_button = tk.Button(self.window, text="Save", command=self.save)
         self.save_button.pack(side=tk.LEFT)
+        self.save_button.pack_forget()
         
         self.canvas.bind("<ButtonPress-1>", self.on_press)
         self.canvas.bind("<B1-Motion>", self.on_motion)
@@ -352,6 +403,16 @@ class BboxPromptDemo:
 
         # Display the image in the Tkinter canvas
         self.display_image(image)
+
+    def normalize_to_uint8(self, image):
+        """Normalize a NumPy array (float image) to uint8."""
+
+        if len(image.shape) == 2:
+            image = np.stack([image] * 3, axis=-1)
+
+        normalized_image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX)
+        normalized_image = np.uint8(normalized_image)
+        return normalized_image
 
     def display_image(self, image):
         """Display the image on the Tkinter canvas."""
@@ -392,16 +453,18 @@ class BboxPromptDemo:
             x_max = max(self.x0, self.x1) * scale_x
             y_min = min(self.y0, self.y1) * scale_y
             y_max = max(self.y0, self.y1) * scale_y
-            bbox = np.array([x_min, y_min, x_max, y_max])
-            print(bbox)
+            self.bbox = np.array([x_min, y_min, x_max, y_max])
+            print(self.bbox)
             # Perform segmentation on the bounding box
             with torch.no_grad():
-                seg = self._infer(bbox)
+                seg = self._infer(self.bbox)
                 torch.cuda.empty_cache()
 
             self.show_mask(seg)
-            self.segs.append(copy.deepcopy(seg))
+            self.clear_button.pack()
+            self.save_button.pack()
             self.rect = None
+
             gc.collect()
 
     def _infer(self, bbox):
@@ -465,32 +528,45 @@ class BboxPromptDemo:
         self.canvas.create_image(0, 0, anchor=tk.NW, image=tk_image)
         self.tk_image = tk_image
         
-        # mask = Image.fromarray(mask * 255)
-        # mask = mask.convert("RGBA")
-        # img = Image.fromarray(self.image)
-        # img = img.convert("RGBA")
-        # img.paste(mask, (0, 0), mask)
-        # self.tk_image = ImageTk.PhotoImage(img)
-        # self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
-
     def clear(self):
         """Clear the canvas and reset the selections."""
         self.canvas.delete("all")
         if self.image is not None:
             self.display_image(self.image)
-        self.segs = []
+
+        self.clear_button.pack_forget()
+        self.save_button.pack_forget()
+
 
     def save(self):
-        """Save the segmentation results."""
-        if self.segs:
-            save_seg = np.zeros_like(self.segs[0])
-            for i, seg in enumerate(self.segs, start=1):
-                save_seg[seg > 0] = i
-            cv2.imwrite("gen_mask/segs.png", save_seg)
-            messagebox.showinfo("Saved", "Segmentation result saved to segs.png")
-            
-        # Save as NRRD file
-        nrrd.write("segs.nrrd", save_seg)
+        """Perform segmentation on all slices with bounding box and save the segmentation results"""
+
+        slice_range = range(int(self.begin_slice), int(self.end_slice) + 1)
+
+        for slice_index in slice_range:
+
+            if self.plane == 0:
+                current_slice = self.readdata[:, :, slice_index]
+            elif self.plane == 1:
+                current_slice = self.readdata[:, slice_index, :]
+            elif self.plane == 2:
+                current_slice = self.readdata[slice_index, :, :]
+
+            current_slice = self.normalize_to_uint8(current_slice)
+            self._set_image(current_slice)
+
+            with torch.no_grad():
+                seg = self._infer(self.bbox)
+                torch.cuda.empty_cache()
+
+            self.segs.append(copy.deepcopy(seg))
+            gc.collect()
+
+        segs_array = np.stack(self.segs, axis=0)
+
+        nrrd.write('segs.nrrd', segs_array)
+
+        messagebox.showinfo("Saved", "Segmentation result saved to segs.nrrd")
 
     def show(self, image, random_color=True, alpha=0.65):
         """Display the image and run the segmentation demo."""
