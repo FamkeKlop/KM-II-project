@@ -20,6 +20,7 @@ import nrrd
 import sys
 import copy
 from copy import deepcopy
+import nibabel as nib
 
 # Import custom modules
 sys.path.append('functions/')
@@ -57,6 +58,7 @@ class App:
         self.setup_ui_elements()
 
     def setup_ui_elements(self):
+        """ Set up all GUI components. Set-up divided into 2 frames: main_frame and left_frame """
         # Main Frame for padding and root structure
         self.main_frame = tk.Frame(self.root, padx=20, pady=10)  # Equal padding on both sides
         self.main_frame.grid(sticky='nsew')
@@ -177,7 +179,10 @@ class App:
 
 
     def load_image_from_file(self):
-        """Load an image from an NRRD or NIFTI file and display the first slice."""
+        """ Load an image from an NRRD or NIFTI file and display the first slice.
+            Calls: 
+                update_slider_range(), display_slice() and update_current_plane_label()
+        """
         file_path = filedialog.askopenfilename(title="Select NRRD file", filetypes=[("NRRD files", "*.nrrd"), ("NIFTI files", "*.nii.gz")])
         
         if file_path:
@@ -215,7 +220,10 @@ class App:
 
 
     def update_slider_range(self):
-        """Update the slider range based on the current plane."""
+        """ Update the slider range based on the current plane and calls to display the middle slice of the range.
+            Calls: 
+                display_slice()
+        """
         if self.current_plane == 0:
             self.slice_slider.config(from_=0, to=self.readdata.shape[2] - 1)
         elif self.current_plane == 1:
@@ -226,7 +234,10 @@ class App:
         self.slice_slider.set(self.slice_index)
 
     def change_plane(self):
-        """Change the current plane and update the slider range and displayed slice."""
+        """ Cycles through the planes and updates the slider range and displayed slice.
+            Calls: 
+                update_slider_range() and display_slice() 
+        """
         self.current_plane = (self.current_plane + 1) % len(self.planes)
         self.update_slider_range()
         self.display_slice(self.slice_index)
@@ -237,12 +248,23 @@ class App:
         self.current_plane_label.config(text=f"Current plane: {self.planes[self.current_plane]}")
 
     def update_slice(self, value):
-        """Update the displayed slice when the slider is moved."""
+        """ Update the displayed slice when the slider is moved.
+            Args:
+                value: The new value of the slider.
+            Calls: 
+                display_slice()
+        """	
         self.slice_index = int(value)
         self.display_slice(self.slice_index)
 
     def display_slice(self, slice_index):
-        """Display the selected slice image on the Tkinter canvas."""
+        """Normalize and display the selected slice image on the Tkinter canvas.
+            Args:
+                slice_index: The index of the slice to display.
+            Calls:
+                normalize_to_uint8(),
+                display_image()
+        """
         if self.current_plane == 0:
             slice_image = self.readdata[:, :, slice_index]
         elif self.current_plane == 1:
@@ -257,13 +279,21 @@ class App:
         self.display_image(self.slice_rgb)
 
     def normalize_to_uint8(self, image):
-        """Normalize a NumPy array (float image) to uint8."""
+        """Normalize a NumPy array (float image) to uint8.
+            Args:
+                image: The image to normalize.
+            Returns:
+                The normalized image (range 0-255)
+        """
         normalized_image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX)
         normalized_image = np.uint8(normalized_image)
         return normalized_image
 
     def display_image(self, rgb_image):
-        """Display the loaded RGB image on the Tkinter canvas."""
+        """Display the loaded RGB image on the Tkinter canvas.
+            Args:
+                rgb_image: The (preferably normalized) RGB image to display.
+        """
         # bgr_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR)
         pil_image = Image.fromarray(rgb_image)
         self.current_image = ImageTk.PhotoImage(pil_image)
@@ -271,14 +301,18 @@ class App:
         self.canvas.image = self.current_image
 
     def set_organ(self):
-        """Update the selected organ label with the value from the organ_entry."""
+        """ Update the selected organ label with the value from the organ_entry and displayes it
+        on the canvas. Also displays the range options when organ has been selected     
+        """
 
         self.selected_organ = self.organ_entry.get()
 
-        # Check if organ is filled in in entry
+        # Check if organ prompt is empty
         if not self.selected_organ.strip():
             self.selected_organ_label.config(text = 'Warning: No organ has been defined', foreground = 'red')
             self.selected_organ_label.grid()
+            
+            # Remove all range-related elements if no organ is selected (anymore)
             self.organ_range_label.grid_remove()
             self.begin_entry.grid_remove()
             self.begin_label.grid_remove()
@@ -287,16 +321,17 @@ class App:
             self.submit_range_button.grid_remove()
             self.segmentation_button.grid_remove()
             return
-
+        
+        # if organ is selected, update label and display new prompts
         new_text = 'Selected organ is ' + self.selected_organ
         self.selected_organ_label.config(text=new_text, foreground = 'black')
-        self.selected_organ_label.grid()
-        self.begin_label.grid()
-        self.begin_entry.grid()
-        self.end_label.grid()
-        self.end_entry.grid()
-        self.submit_range_button.grid()
-        self.organ_range_label.grid_remove()
+        self.selected_organ_label.grid()    # Display name selected organ
+        self.begin_label.grid()             # Display begin slice text
+        self.begin_entry.grid()             # Display begin slice entry prompt box
+        self.end_label.grid()               # Display end slice text
+        self.end_entry.grid()               # Display end slice entry prompt box
+        self.submit_range_button.grid()     # Display submit button
+        self.organ_range_label.grid_remove() # Remove range when new organ is selected
 
         # Remove previous information
         self.begin_entry.delete(0, tk.END)
@@ -306,6 +341,10 @@ class App:
         self.segmentation_button.grid_remove()
 
     def set_organ_range(self):
+        """ Update the range label with the values from the begin and end entry boxes and displayes
+        then om the canvas.
+        """
+        # Get the values from the entry boxes
         self.begin_slice = self.begin_entry.get()
         self.end_slice = self.end_entry.get()
 
@@ -328,6 +367,7 @@ class App:
             self.segmentation_button.grid_remove()
             return
 
+        # Update label/text and display segmentation button
         new_text = "Slice range of " + self.selected_organ + ' is [' + self.begin_slice + ', ' + self.end_slice + ']'
         self.organ_range_label.config(text=new_text, foreground = 'black')
         self.organ_range_label.grid()
@@ -335,6 +375,8 @@ class App:
         self.segmentation_button.grid()
  
     def start_segmentation(self):
+        """ Start segmentation with the values from the begin and end entry boxes.
+        """
         if self.readdata is not None:
             middle_slice = int((float(self.end_slice) - float(self.begin_slice))/2 + float(self.begin_slice))
 
@@ -342,22 +384,23 @@ class App:
             self.slice_slider.set(self.slice_index)
             self.display_slice(self.slice_index)
 
-            bbox_prompt_demo = BboxPromptDemo(self.medsam_model, self.readdata, self.begin_slice, self.end_slice, self.current_plane)
+            bbox_prompt_demo = BboxPromptDemo(self.medsam_model, self.readdata, self.begin_slice, self.end_slice, self.current_plane, self.slice_index)
             bbox_prompt_demo.show(self.slice_rgb)
 
 
-def show_mask(mask, ax, random_color=False, alpha=0.95):
-    if random_color:
-        color = np.concatenate([np.random.random(3), np.array([alpha])], axis=0)
-    else:
-        color = np.array([251/255, 252/255, 30/255, alpha])
-    h, w = mask.shape[-2:]
-    mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
-    ax.imshow(mask_image)
+    def show_mask(mask, ax, random_color=False, alpha=0.95):
+        if random_color:
+            color = np.concatenate([np.random.random(3), np.array([alpha])], axis=0)
+        else:
+            color = np.array([251/255, 252/255, 30/255, alpha])
+        h, w = mask.shape[-2:]
+        mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
+        ax.imshow(mask_image)
 
 #ORIGINAL:
 class BboxPromptDemo:
-    def __init__(self, model, data, begin_slice, end_slice, plane):
+    def __init__(self, model, data, begin_slice, end_slice, plane, slice_index):
+        
         self.model = model
         self.model.eval()
         self.readdata = data
@@ -388,16 +431,33 @@ class BboxPromptDemo:
         self.save_button.pack(side=tk.LEFT)
         self.save_button.pack_forget()
         
+        # Set initial slice image
+        innitial_slice = self.get_image_from_plane(self.plane, slice_index)
+        innitial_slice = self.normalize_to_uint8(innitial_slice)
+        self._set_image(innitial_slice)
+        
+        self.canvas.bind("<Configure>", self.on_canvas_resize)
+
+        # Bind mouse events        
         self.canvas.bind("<ButtonPress-1>", self.on_press)
         self.canvas.bind("<B1-Motion>", self.on_motion)
         self.canvas.bind("<ButtonRelease-1>", self.on_release)
         
         self.window.protocol("WM_DELETE_WINDOW", self.on_close)
-
+        
     def _set_image(self, image):
+        """ Prepares the image for the model by preprocessing it and extracting the embedding. The
+            image is displayed in the Tkinter canvas.
+            Args:
+                image: 2D NumPy array or 3D NumPy array (RGB image).
+            Calls:
+                _preprocess_image(), display_image()
+        """
         self.image = image
         self.img_size = image.shape[:2]
         image_preprocess = self._preprocess_image(image)
+        
+        # Get image embedding from encoder
         with torch.no_grad():
             self.image_embeddings = self.model.image_encoder(image_preprocess)
 
@@ -405,7 +465,11 @@ class BboxPromptDemo:
         self.display_image(image)
 
     def normalize_to_uint8(self, image):
-        """Normalize a NumPy array (float image) to uint8."""
+        """Normalize a NumPy array (float image) to uint8.
+            Args:
+                image: 2D NumPy array or 3D NumPy array (RGB image).
+            Returns:
+                normalized_image: 2D NumPy array or 3D NumPy array"""
 
         if len(image.shape) == 2:
             image = np.stack([image] * 3, axis=-1)
@@ -415,7 +479,9 @@ class BboxPromptDemo:
         return normalized_image
 
     def display_image(self, image):
-        """Display the image on the Tkinter canvas."""
+        """Display the image on the Tkinter canvas.
+            Args:
+                image: 2D NumPy array or 3D NumPy array (RGB image)."""
         if image.dtype != np.uint8:
             image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX)
             image = np.uint8(image)
@@ -428,23 +494,30 @@ class BboxPromptDemo:
         self.window.image = self.tk_image
 
     def on_press(self, event):
-        """Called when the mouse button is pressed to start bounding box selection."""
+        """Called when the mouse button is pressed to start bounding box selection.
+            Args:
+                event: mouse event (clicking)."""
         self.x0, self.y0 = event.x, event.y
         self.currently_selecting = True
         self.rect = self.canvas.create_rectangle(self.x0, self.y0, self.x0, self.y0, outline="crimson", width=2)
 
     def on_motion(self, event):
-        """Called when the mouse is moved during bounding box selection."""
+        """Called when the mouse is moved during bounding box selection.
+            Args:
+                event: mouse event (moving)."""
         if self.currently_selecting:
             self.x1, self.y1 = event.x, event.y
             self.canvas.coords(self.rect, self.x0, self.y0, self.x1, self.y1)
 
     def on_release(self, event):
-        """Called when the mouse button is released to finalize bounding box."""
+        """Called when the mouse button is released to finalize bounding box.
+            Args:  
+                event: mouse event (release)."""
         if self.currently_selecting:
             self.x1, self.y1 = event.x, event.y
             self.currently_selecting = False
             
+            # Scale to from pixel space to image space
             scale_x = self.img_size[1] / self.canvas.winfo_width()
             scale_y = self.img_size[0] / self.canvas.winfo_height()
             
@@ -454,7 +527,7 @@ class BboxPromptDemo:
             y_min = min(self.y0, self.y1) * scale_y
             y_max = max(self.y0, self.y1) * scale_y
             self.bbox = np.array([x_min, y_min, x_max, y_max])
-            print(self.bbox)
+
             # Perform segmentation on the bounding box
             with torch.no_grad():
                 seg = self._infer(self.bbox)
@@ -468,7 +541,10 @@ class BboxPromptDemo:
             gc.collect()
 
     def _infer(self, bbox):
-        """Perform inference to generate the segmentation mask."""
+        """Perform inference to generate the segmentation mask. 
+            Args:
+                bbox: 1D NumPy array (x_min, y_min, x_max, y_max).
+        """
         ori_H, ori_W = self.img_size
         scale_to_1024 = 1024 / np.array([ori_W, ori_H, ori_W, ori_H])
         bbox_1024 = bbox * scale_to_1024
@@ -501,7 +577,11 @@ class BboxPromptDemo:
         return medsam_seg
 
     def show_mask(self, mask, random_color=True, alpha=0.95):
-        """Display the segmentation mask on the canvas."""
+        """Display the segmentation mask on the canvas.
+            Args:
+                mask: 2D NumPy array (Height, Width).
+                random_color: Whether to use a random color for the mask.
+                alpha: Transparency of the mask (0.0 to 1.0)."""
         
         if random_color:
             color = (np.random.randint(0, 256), 
@@ -529,7 +609,9 @@ class BboxPromptDemo:
         self.tk_image = tk_image
         
     def clear(self):
-        """Clear the canvas and reset the selections."""
+        """Clear the canvas and reset the selections.
+            Calls:
+                display_image()"""
         self.canvas.delete("all")
         if self.image is not None:
             self.display_image(self.image)
@@ -539,19 +621,21 @@ class BboxPromptDemo:
 
 
     def save(self):
-        """Perform segmentation on all slices with bounding box and save the segmentation results"""
+        """Perform segmentation on all slices with bounding box and save the segmentation results
+            to a NRRD file.
+            Calls:
+                get_image_from_plane()
+                normalize_to_uint8()
+                _set_image()
+                _infer()
+            """
 
         slice_range = range(int(self.begin_slice), int(self.end_slice) + 1)
 
         for slice_index in slice_range:
 
-            if self.plane == 0:
-                current_slice = self.readdata[:, :, slice_index]
-            elif self.plane == 1:
-                current_slice = self.readdata[:, slice_index, :]
-            elif self.plane == 2:
-                current_slice = self.readdata[slice_index, :, :]
-
+            current_slice = self.get_image_from_plane(self.plane, slice_index)
+            
             current_slice = self.normalize_to_uint8(current_slice)
             self._set_image(current_slice)
 
@@ -568,25 +652,46 @@ class BboxPromptDemo:
 
         messagebox.showinfo("Saved", "Segmentation result saved to segs.nrrd")
 
+    def get_image_from_plane(self, plane, slice_index):
+        """Get the image from a specific plane and slice index.
+            Args:
+                plane: 0 for axial, 1 for coronal, 2 for sagittal.
+                slice_index: Index of the slice."""
+        if self.plane == 0:
+            image = self.readdata[:, :, slice_index]
+        elif self.plane == 1:
+            image = self.readdata[:, slice_index, :]
+        elif self.plane == 2:
+            image = self.readdata[slice_index, :, :]
+
+        return image
+    
     def show(self, image, random_color=True, alpha=0.65):
-        """Display the image and run the segmentation demo."""
+        """Display the image and run the segmentation demo.
+            Args:
+                image: File path or NumPy array.
+                random_color: Boolean whether to use a random color for the mask.
+                alpha: Transparency of the mask (0.0 to 1.0)."""
         if isinstance(image, str):
             self.set_image_path(image)
         elif isinstance(image, np.ndarray):
             self._set_image(image)
         else:
             raise ValueError("Input must be a file path or a NumPy array.")
-        
         self.window.mainloop()
 
     def set_image_path(self, image_path):
-        """Load image from file path and set."""
+        """Load image from file path and set.
+            Args:
+                image_path: File path to the image."""
         image = cv2.imread(image_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         self._set_image(image)
 
     def _preprocess_image(self, image):
-        """Preprocess the image for the model."""
+        """Preprocess the image for the model.
+            Args:
+                image: File path or NumPy array."""
         img_resize = cv2.resize(image, (1024, 1024), interpolation=cv2.INTER_CUBIC)
         img_resize = (img_resize - img_resize.min()) / np.clip(img_resize.max() - img_resize.min(), a_min=1e-8, a_max=None)
         img_tensor = torch.tensor(img_resize).float().permute(2, 0, 1).unsqueeze(0).to(self.model.device)
@@ -595,6 +700,13 @@ class BboxPromptDemo:
     def on_close(self):
         """Handle the window close event."""
         self.window.destroy()
+    
+    def on_canvas_resize(self, event):
+        """Handle the canvas resize event.
+            Args:
+                event: Event object."""
+        if self.canvas.winfo_width() > 1 and self.canvas.winfo_height() > 1:
+            self.display_image(self.image)
 
 # Main section to start the Tkinter app
 if __name__ == "__main__":
