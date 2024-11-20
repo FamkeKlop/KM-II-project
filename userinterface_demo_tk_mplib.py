@@ -69,7 +69,7 @@ class App:
         self.main_frame.grid_rowconfigure(0, weight=1)
         self.main_frame.grid_rowconfigure(1, weight=0)  # No extra weight for the last row with Quit button
 
-        # Left frame for controls and labels, with more padding to center it between the window and the image
+        # Left frame for controls and labels
         self.left_frame = tk.Frame(self.main_frame, padx=10)  # Padding to center elements within this frame
         self.left_frame.grid(row=0, column=0, sticky='n', padx=(0, 20), pady=(0, 10))  # Left frame centered more
 
@@ -104,9 +104,36 @@ class App:
         self.selected_organ_label.grid(row=4, column=0, pady=(5, 5), sticky="w")
         self.selected_organ_label.grid_remove()
 
+        # Label for specifying the plane
+        self.plane_label = tk.Label(self.left_frame, text="Specify the plane for slice range", font=('Helvetica', 10))
+        self.plane_label.grid(row=5, column=0, pady=(10, 5), sticky="w")
+        self.plane_label.grid_remove()
+
+        # Frame for the checkboxes
+        self.plane_frame = tk.Frame(self.left_frame)
+        self.plane_frame.grid(row=6, column=0, sticky="w", pady=(5, 10))
+
+        # # Checkboxes
+        self.plane_var = tk.IntVar(value=0)
+
+        self.axial_checkbox = tk.Radiobutton(self.plane_frame, text="Axial", variable=self.plane_var, value=0,
+        command=self.set_plane_for_range)
+        self.axial_checkbox.grid(row=0, column=0, padx=(0, 10), sticky="w")
+        self.axial_checkbox.grid_remove()
+
+        self.coronal_checkbox = tk.Radiobutton(self.plane_frame, text="Coronal", variable=self.plane_var, value=1,
+        command=self.set_plane_for_range)
+        self.coronal_checkbox.grid(row=0, column=1, padx=(10, 10), sticky="w")
+        self.coronal_checkbox.grid_remove()
+
+        self.sagittal_checkbox = tk.Radiobutton(self.plane_frame, text="Sagittal", variable=self.plane_var, value=2,
+        command=self.set_plane_for_range)
+        self.sagittal_checkbox.grid(row=0, column=2, padx=(10, 0), sticky="w")
+        self.sagittal_checkbox.grid_remove()
+
         # Frame for "Begin" and "End" integer entries
         self.range_frame = tk.Frame(self.left_frame)
-        self.range_frame.grid(row=5, column=0, sticky="w", pady=(5, 10))
+        self.range_frame.grid(row=7, column=0, sticky="w", pady=(5, 10))
 
         # Begin Label and Entry
         self.begin_label = tk.Label(self.range_frame, text="Begin slice", font=('Helvetica', 9))
@@ -131,14 +158,14 @@ class App:
 
         # Label for "Slice range of organ is ..."
         self.organ_range_label = tk.Label(self.left_frame, text="Slice range of organ is ", font=('Helvetica', 10))
-        self.organ_range_label.grid(row=6, column=0, pady=(5, 5), sticky="w")
+        self.organ_range_label.grid(row=8, column=0, pady=(5, 5), sticky="w")
         self.organ_range_label.grid_remove()
 
         # Start Segmentation Button aligned to the bottom left
         self.segmentation_button = tk.Button(self.left_frame, text="Start Segmentation",
                                             command=self.start_segmentation,
                                             bg='#b8cfb9', font=self.button_font, width=18, height=2)
-        self.segmentation_button.grid(row=7, column=0, pady=(5, 20), sticky="sw")
+        self.segmentation_button.grid(row=9, column=0, pady=(5, 20), sticky="sw")
         self.segmentation_button.grid_remove()
 
         # Right frame for image and related controls
@@ -176,6 +203,8 @@ class App:
         self.quit_button = tk.Button(self.main_frame, text="Quit", command=self.root.quit,
                                     bg='#3b3a3a', fg='#ffffff', font=self.button_font, width=18, height=2)
         self.quit_button.grid(row=1, column=1, sticky='se', padx=(0, 20), pady=(0, 10))
+
+        self.update_windowsize()
 
 
     def load_image_from_file(self):
@@ -217,6 +246,16 @@ class App:
             self.end_label.grid_remove()
             self.submit_range_button.grid_remove()
             self.segmentation_button.grid_remove()
+
+            self.update_windowsize()
+
+    def update_windowsize(self):
+        """Update the window size such that all the widgets fit."""
+
+        self.root.update_idletasks()
+        new_width = self.root.winfo_reqwidth()
+        new_height = self.root.winfo_reqheight()
+        self.root.geometry(f"{new_width}x{new_height}")
 
 
     def update_slider_range(self):
@@ -294,7 +333,6 @@ class App:
             Args:
                 rgb_image: The (preferably normalized) RGB image to display.
         """
-        # bgr_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR)
         pil_image = Image.fromarray(rgb_image)
         self.current_image = ImageTk.PhotoImage(pil_image)
         self.canvas.create_image(0, 0, anchor="nw", image=self.current_image)
@@ -320,18 +358,27 @@ class App:
             self.end_label.grid_remove()
             self.submit_range_button.grid_remove()
             self.segmentation_button.grid_remove()
+            self.plane_label.grid_remove()
+            self.axial_checkbox.grid_remove()
+            self.coronal_checkbox.grid_remove()
+            self.sagittal_checkbox.grid_remove()
             return
         
         # if organ is selected, update label and display new prompts
         new_text = 'Selected organ is ' + self.selected_organ
-        self.selected_organ_label.config(text=new_text, foreground = 'black')
-        self.selected_organ_label.grid()    # Display name selected organ
-        self.begin_label.grid()             # Display begin slice text
-        self.begin_entry.grid()             # Display begin slice entry prompt box
-        self.end_label.grid()               # Display end slice text
-        self.end_entry.grid()               # Display end slice entry prompt box
-        self.submit_range_button.grid()     # Display submit button
-        self.organ_range_label.grid_remove() # Remove range when new organ is selected
+        self.selected_organ_label.config(text=new_text, foreground = 'black', font=('Helvetica', 11,'bold'))
+        self.selected_organ_label.grid()    
+        self.plane_label.grid()
+        self.axial_checkbox.grid()
+        self.coronal_checkbox.grid()
+        self.sagittal_checkbox.grid()
+
+        self.begin_label.grid()  
+        self.begin_entry.grid()
+        self.end_label.grid()   
+        self.end_entry.grid()    
+        self.submit_range_button.grid() 
+        self.organ_range_label.grid_remove() 
 
         # Remove previous information
         self.begin_entry.delete(0, tk.END)
@@ -340,9 +387,26 @@ class App:
         self.end_slice = None
         self.segmentation_button.grid_remove()
 
+    def set_plane_for_range(self):
+        """Set the changed plane, where the organ range will be specified for."""
+
+        self.current_plane = self.plane_var.get()
+        self.update_slider_range()
+        self.display_slice(self.slice_index)
+        self.update_current_plane_label()
+
+        # Remove previous information
+        self.begin_entry.delete(0, tk.END)
+        self.end_entry.delete(0, tk.END)
+        self.begin_slice = None
+        self.end_slice = None
+        self.organ_range_label.grid_remove()
+        self.segmentation_button.grid_remove()
+
+
     def set_organ_range(self):
-        """ Update the range label with the values from the begin and end entry boxes and displayes
-        then om the canvas.
+        """ Update the range label with the values from the begin and end entry boxes and displays
+        them on the canvas.
         """
         # Get the values from the entry boxes
         self.begin_slice = self.begin_entry.get()
@@ -371,24 +435,43 @@ class App:
         new_text = "Slice range of " + self.selected_organ + ' is [' + self.begin_slice + ', ' + self.end_slice + ']'
         self.organ_range_label.config(text=new_text, foreground = 'black')
         self.organ_range_label.grid()
-
         self.segmentation_button.grid()
+
+        # Set displayed image to middle slice of range
+        middle_slice = int((float(self.end_slice) - float(self.begin_slice))/2 + float(self.begin_slice))
+        self.slice_index = middle_slice
+        self.slice_slider.set(self.slice_index)
+        self.display_slice(self.slice_index)
  
     def start_segmentation(self):
         """ Start segmentation with the values from the begin and end entry boxes.
         """
-        if self.readdata is not None:
-            middle_slice = int((float(self.end_slice) - float(self.begin_slice))/2 + float(self.begin_slice))
+        bbox_prompt_demo = BboxPromptDemo(self.medsam_model, self.readdata, self.begin_slice, self.end_slice, 
+        self.current_plane, self.slice_index, self.root, self.save_segmentation)
+        bbox_prompt_demo.show(self.slice_rgb)
 
-            self.slice_index = middle_slice
-            self.slice_slider.set(self.slice_index)
-            self.display_slice(self.slice_index)
+    def save_segmentation(self, seg):
+        self.seg = seg
 
-            bbox_prompt_demo = BboxPromptDemo(self.medsam_model, self.readdata, self.begin_slice, self.end_slice, self.current_plane, self.slice_index)
-            bbox_prompt_demo.show(self.slice_rgb)
+        # print(self.seg)
 
+        # Right frame for segmented organs section
+        self.segmented_organs_frame = tk.Frame(self.main_frame, padx=10)
+        self.segmented_organs_frame.grid(row=0, column=2, sticky='n', padx=(0, 20), pady=(10, 10))
 
-    def show_mask(mask, ax, random_color=False, alpha=0.95):
+        # Label for "Segmented organs"
+        self.segmented_organs_label = tk.Label(self.segmented_organs_frame, text="Segmented organs", font=('Helvetica', 11, 'bold'))
+        self.segmented_organs_label.grid(row=0, column=0, pady=(0, 10), sticky="w")
+
+        # Checkbox for segmented organs
+        self.segmented_organs_var = tk.BooleanVar()  # Variable to track the checkbox state
+        self.segmented_organs_checkbox = tk.Checkbutton(self.segmented_organs_frame, text=self.selected_organ, 
+        variable=self.segmented_organs_var, font=('Helvetica', 10))
+        self.segmented_organs_checkbox.grid(row=1, column=0, sticky="w")
+
+        self.update_windowsize()    #Update windowsize
+
+def show_mask(mask, ax, random_color=False, alpha=0.95):
         if random_color:
             color = np.concatenate([np.random.random(3), np.array([alpha])], axis=0)
         else:
@@ -397,9 +480,9 @@ class App:
         mask_image = mask.reshape(h, w, 1) * color.reshape(1, 1, -1)
         ax.imshow(mask_image)
 
-#ORIGINAL:
+
 class BboxPromptDemo:
-    def __init__(self, model, data, begin_slice, end_slice, plane, slice_index):
+    def __init__(self, model, data, begin_slice, end_slice, plane, slice_index, master, callback):
         
         self.model = model
         self.model.eval()
@@ -416,25 +499,30 @@ class BboxPromptDemo:
         self.rect = None
         self.segs = []
         self.bbox = None
+        self.master = master
+        self.callback = callback
         
-        self.window = tk.Toplevel()
+        self.window = tk.Toplevel(master)
         self.window.title("Bounding Box Segmentation")
         
-        self.canvas = tk.Canvas(self.window)
+        # Set image
+        initial_slice = self.get_image_from_plane(self.plane, slice_index)
+        initial_slice = self.normalize_to_uint8(initial_slice)
+
+        img_height, img_width = initial_slice.shape[:2]
+
+        self.canvas = tk.Canvas(self.window, width=img_width, height=img_height)
         self.canvas.pack(fill=tk.BOTH, expand=True)
-        
-        self.clear_button = tk.Button(self.window, text="Clear", command=self.clear)
-        self.clear_button.pack(side=tk.LEFT)
+
+        self.clear_button = tk.Button(self.window, text="Try again", command=self.clear)
+        self.clear_button.pack()
         self.clear_button.pack_forget()
         
-        self.save_button = tk.Button(self.window, text="Save", command=self.save)
+        self.save_button = tk.Button(self.window, text="Segment for all slices in organ range", command=self.save)
         self.save_button.pack(side=tk.LEFT)
         self.save_button.pack_forget()
-        
-        # Set initial slice image
-        innitial_slice = self.get_image_from_plane(self.plane, slice_index)
-        innitial_slice = self.normalize_to_uint8(innitial_slice)
-        self._set_image(innitial_slice)
+
+        self._set_image(initial_slice)
         
         self.canvas.bind("<Configure>", self.on_canvas_resize)
 
@@ -483,8 +571,9 @@ class BboxPromptDemo:
             Args:
                 image: 2D NumPy array or 3D NumPy array (RGB image)."""
         if image.dtype != np.uint8:
-            image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX)
-            image = np.uint8(image)
+            image = self.normalize_to_uint8(image)
+
+        self.canvas.delete("all")
 
         pil_image = Image.fromarray(image)
         tk_image = pil_image.resize((self.canvas.winfo_width(), self.canvas.winfo_height()))
@@ -534,8 +623,8 @@ class BboxPromptDemo:
                 torch.cuda.empty_cache()
 
             self.show_mask(seg)
-            self.clear_button.pack()
-            self.save_button.pack()
+            self.clear_button.pack(side=tk.LEFT, padx=10, pady=10)
+            self.save_button.pack(side=tk.RIGHT, padx=10, pady=10)
             self.rect = None
 
             gc.collect()
@@ -619,7 +708,6 @@ class BboxPromptDemo:
         self.clear_button.pack_forget()
         self.save_button.pack_forget()
 
-
     def save(self):
         """Perform segmentation on all slices with bounding box and save the segmentation results
             to a NRRD file.
@@ -633,9 +721,7 @@ class BboxPromptDemo:
         slice_range = range(int(self.begin_slice), int(self.end_slice) + 1)
 
         for slice_index in slice_range:
-
             current_slice = self.get_image_from_plane(self.plane, slice_index)
-            
             current_slice = self.normalize_to_uint8(current_slice)
             self._set_image(current_slice)
 
@@ -648,9 +734,12 @@ class BboxPromptDemo:
 
         segs_array = np.stack(self.segs, axis=0)
 
-        nrrd.write('segs.nrrd', segs_array)
+        # nrrd.write('segs.nrrd', segs_array)
 
-        messagebox.showinfo("Saved", "Segmentation result saved to segs.nrrd")
+        self.callback(segs_array) #Return segmentation to main UI
+        self.window.destroy() # Close pop up window
+
+        # messagebox.showinfo("Saved", "Segmentation result saved to segs.nrrd")
 
     def get_image_from_plane(self, plane, slice_index):
         """Get the image from a specific plane and slice index.
@@ -713,3 +802,4 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = App(root)
     root.mainloop()
+
