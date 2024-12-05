@@ -23,6 +23,7 @@ from copy import deepcopy
 import nibabel as nib
 from tkinter import ttk
 import time
+import math
 
 # Import custom modules
 sys.path.append('functions/')
@@ -48,11 +49,11 @@ class App:
         self.end_slice = None
         self.segmented_organs_list = dict()
         self.segmented_organs_vars = dict()
-        self.colors_list = [(100, 143, 255, 0.7*255), (120, 94, 240, 0.7*255), (220, 38, 127, 0.7*255), (254, 97, 0, 0.7*255), (255, 176, 0, 0.7*255)]
+        self.colors_list = [(100, 143, 255, 0.4*255), (120, 94, 240, 0.4*255), (220, 38, 127, 0.4*255), (254, 97, 0, 0.4*255), (255, 176, 0, 0.4*255)]
 
         # Load the MedSAM model
         MedSAM_CKPT_PATH = "work_dir/MedSAM/medsam_vit_b.pth"
-        device = torch.device('cuda')  # Set to CPU for compatibility
+        device = torch.device('cuda')  # Set to GPU for compatibility
         self.medsam_model = sam_model_registry['vit_b'](checkpoint=MedSAM_CKPT_PATH)
         self.medsam_model = self.medsam_model.to(device)
         self.medsam_model.eval()
@@ -521,7 +522,7 @@ class App:
         self.segmentation_button.grid()
 
         # Set displayed image to middle slice of range
-        middle_slice = int((float(self.end_slice) - float(self.begin_slice))/2 + float(self.begin_slice))
+        middle_slice = int(math.ceil((float(self.end_slice) - float(self.begin_slice))/2) + float(self.begin_slice))
         self.slice_index = middle_slice
         self.slice_slider.set(self.slice_index)
         self.update_slice(self.slice_index)
@@ -576,17 +577,58 @@ class App:
         
         
     def save_final_segmentations(self):
-        # Get most recent segmentation
-        final_segmentations = np.zeros(self.readdata.shape)
+        
+        # Prompt the user to select a file name and location
+        file_path = filedialog.asksaveasfilename(
+        defaultextension=".nrrd",
+        filetypes=[("NRRD files", "*.nrrd"), ("All files", "*.*")],
+        title="Save Segmentations"
+        )
+    
+        # If the user cancels the dialog, exit the function
+        if not file_path:
+            return
+        
+        # Create a label map (single 3D array with unique labels for each organ)
+        final_segmentations = np.zeros(self.readdata.shape + (len(self.segmented_organs_list),), dtype=np.uint8)
+        organ_metadata = {}
+    
+            
+        #organ_metadata = {}
+        
+        # Loop over all saved masks
         for organ, value in self.segmented_organs_list.items():
             number_id = value[0]
             mask_array = value[1]
-            final_segmentations += mask_array*(number_id+1)
             
+            final_segmentations[..., number_id] = mask_array
+            # final_segmentations += mask_array*(number_id+1)
+            
+            # Store the mapping in the metadaata dictionary
+            organ_metadata[f"organ_{number_id}"] = {
+                "name": organ, 
+                "number_id": number_id }
+        
+        # Save the 4d mask array
+        metadata = {
+            "organ_info": organ_metadata,
+             "description": "4D segmentation array with organ masks stored in the fourth dimension"
+            }
+                    
+        try:
+            nrrd.write(file_path, final_segmentations, header=metadata)
+            # Notify the user that the file was saved successfully
+            self.label_saved_segmentations.config(text=f"Segmentations saved")
+            self.label_saved_segmentations.grid()
+            self.save_segmentations_button["state"] = "disabled"
+        except Exception as e:
+            # Handle any errors that occur during saving
+            self.label_saved_segmentations.config(text=f"Error saving segmentations: {e}")
+            self.label_saved_segmentations.grid()
+        
+        # Disable the save button
         self.label_saved_segmentations.grid()
         self.save_segmentations_button["state"] = "disabled"
-        
-        nrrd.write('segmentations.nrrd', final_segmentations)
 
     def save_segmentation(self, seg):     
         # Right frame for segmented organs section
@@ -613,8 +655,8 @@ class App:
         self.axial_checkbox.grid_remove()
         self.coronal_checkbox.grid_remove()
         self.sagittal_checkbox.grid_remove()
-        self.label_saved_segmentations.grid_remove()
-        self.save_segmentations_button.grid_remove()
+        #self.label_saved_segmentations.grid_remove()
+        #self.save_segmentations_button.grid_remove()
     
 
         # Checkbox for segmented organs

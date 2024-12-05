@@ -23,6 +23,7 @@ from copy import deepcopy
 import nibabel as nib
 from tkinter import ttk
 import time
+import math
 
 # Import custom modules
 sys.path.append('functions/')
@@ -45,7 +46,7 @@ class BboxPromptDemo:
         self.currently_selecting = False
         self.x0, self.y0, self.x1, self.y1 = 0., 0., 0., 0.
         self.rect = None
-        self.segs = []
+        #self.segs = np.zeros(int(self.end_slice)-int(self.begin_slice))
         self.bbox = None
         self.master = master
         self.callback = callback
@@ -121,7 +122,7 @@ class BboxPromptDemo:
         normalized_image = np.uint8(normalized_image)
         return normalized_image
 
-    def display_image(self, image):
+    def display_image(self, image, bbox=None):
         """Display the image on the Tkinter canvas.
             Args:
                 image: 2D NumPy array or 3D NumPy array (RGB image)."""
@@ -136,6 +137,16 @@ class BboxPromptDemo:
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
         self.canvas.image = self.tk_image
         self.window.image = self.tk_image
+        
+         # Draw bounding box if provided
+        if bbox is not None:
+            scale_x = self.canvas.winfo_width() / self.img_size[1]
+            scale_y = self.canvas.winfo_height() / self.img_size[0]
+            x_min = bbox[0] * scale_x
+            y_min = bbox[1] * scale_y
+            x_max = bbox[2] * scale_x
+            y_max = bbox[3] * scale_y
+            self.canvas.create_rectangle(x_min, y_min, x_max, y_max, outline="red", width=2)
 
     def on_press(self, event):
         """Called when the mouse button is pressed to start bounding box selection.
@@ -267,6 +278,48 @@ class BboxPromptDemo:
 
         self.clear_button.grid_remove()
         self.save_button.grid_remove()
+        
+    def generate_middle_mask(self):
+        drawn_bbox = self.bbox
+        middle_slice_nr = int(math.ceil((float(self.end_slice) - float(self.begin_slice))/2) + float(self.begin_slice))
+        middle_slice = self.get_image_from_plane(self.plane, middle_slice_nr)
+        middle_slice = self.normalize_to_uint8(middle_slice)
+        
+        with torch.no_grad():
+            sparse_embedding, dense_embeddings = self._transform_bbox(drawn_bbox)
+            seg_middle_slice = self._infer(sparse_embedding, dense_embeddings)
+            torch.cuda.empty_cache()
+        
+        self.segs = np.zeros((int(self.end_slice) - int(self.begin_slice) + 1, *seg_middle_slice.shape), dtype=np.uint8)
+
+        self.segs[middle_slice_nr-int(self.begin_slice)] = seg_middle_slice
+        
+        return middle_slice_nr
+
+    def get_dynamix_bbox(self, mask, margin_x, margin_y):
+        """Caclulate the dimension and placement of the new bbox"""
+        # Find segmented coordinates:
+        coords = np.argwhere(mask==1)
+        
+        # Get minimum x and y coordinates:
+        x_min = min(coords[:,0]) - margin_x
+        x_max = max(coords[:,0]) + margin_x
+        y_min = min(coords[:,1]) - margin_y
+        y_max = max(coords[:,1]) + margin_y
+        
+        # Scale to from pixel space to image space
+        scale_x = self.img_size[1] / self.canvas.winfo_width()
+        scale_y = self.img_size[0] / self.canvas.winfo_height()
+        
+        # Draw and update the bounding box
+        x_min = min(self.x0, self.x1) * scale_x
+        x_max = max(self.x0, self.x1) * scale_x
+        y_min = min(self.y0, self.y1) * scale_y
+        y_max = max(self.y0, self.y1) * scale_y
+        
+        bbox = np.array([x_min, y_min, x_max, y_max])
+        
+        return bbox
 
     def save(self):
         """Perform segmentation on all slices with bounding box and save the segmentation results
@@ -277,12 +330,76 @@ class BboxPromptDemo:
                 _set_image()
                 _infer()
             """
-
+        # Start by generating the middle mask from the users bbox
+        middle_slice_nr = self.generate_middle_mask()
+        
+        # Split the total range into two parts, before the middle and after the middle:
+        range_end = range(middle_slice_nr, int(self.end_slice)+1)
+        range_begin = range(middle_slice_nr, int(self.begin_slice) -1, -1)
+        
+        # Complete slice range:
         slice_range = range(int(self.begin_slice), int(self.end_slice) + 1)
-        sparse_embedding, dense_embeddings = self._transform_bbox(self.bbox)
+        
+        # How many pixels bigger is the new mask, compared to its min and max coordinates
+        error_margin = 0.01
+        error_margin_x = (self.bbox[2]-self.bbox[0])*error_margin
+        error_margin_y = (self.bbox[3]-self.bbox[1])*error_margin
+        
         self.progressbar['value'] = 0
         self.progressbar.grid()
+        
+        # Start with the slices before the middle slice and go backwards:
+        # Initialize with previosu mask with middle slice:
+        previous_mask = self.segs[middle_slice_nr-int(self.begin_slice)]
+        for idx, slice_index in enumerate(range_begin, 1):
+            print("slice idx: ", slice_index)
+            current_slice = self.get_image_from_plane(self.plane, slice_index)
+            current_slice = self.normalize_to_uint8(current_slice)
+            self._set_image(current_slice)
+            
+            # Update bbox based on previous mask
+            current_bbox = self.get_dynamix_bbox(previous_mask, error_margin_x, error_margin_y)
+            # Visualize the bbox on the current slice
+            self.display_image(current_slice, bbox=current_bbox)
+            with torch.no_grad():
+                sparse_embedding, dense_embeddings = self._transform_bbox(current_bbox)
+                seg = self._infer(sparse_embedding, dense_embeddings)
+                torch.cuda.empty_cache()
+            self.show_mask(seg)
+            self.segs[slice_index - int(self.begin_slice)] = seg
+            previous_mask = seg  # Update for the next iteration
+            gc.collect()
+            
+            # Update progress bar
+            self.progressbar['value'] = (idx / len(slice_range)) * 100
+            self.window.update_idletasks()
+        
+        # Perform same segmentation for slices after the middle slice
+        previous_mask = self.segs[middle_slice_nr-int(self.begin_slice)]
+        for idx, slice_index in enumerate(range_end, 1):
+            print("slice idx: ", slice_index)
+            current_slice = self.get_image_from_plane(self.plane, slice_index)
+            current_slice = self.normalize_to_uint8(current_slice)
+            self._set_image(current_slice)
 
+            # Update bbox based on previous mask
+            current_bbox = self.get_dynamix_bbox(previous_mask, error_margin_x, error_margin_y)
+            self.display_image(current_slice, bbox=current_bbox)
+            self.show_mask(seg)
+            with torch.no_grad():
+                sparse_embedding, dense_embeddings = self._transform_bbox(current_bbox)
+                seg = self._infer(sparse_embedding, dense_embeddings)
+                torch.cuda.empty_cache()
+            
+            self.segs[slice_index - int(self.begin_slice)] = seg
+            previous_mask = seg  # Update for the next iteration
+            gc.collect()
+
+            # Update progress bar
+            self.progressbar['value'] = ((idx / len(slice_range))+(1/2*len(slice_range))) * 100
+            self.window.update_idletasks()
+        
+        """
         for idx, slice_index in enumerate(slice_range, 1):           
             current_slice = self.get_image_from_plane(self.plane, slice_index)
             current_slice = self.normalize_to_uint8(current_slice)
@@ -290,20 +407,22 @@ class BboxPromptDemo:
             self._set_image(current_slice)
 
             with torch.no_grad():
+                sparse_embedding, dense_embeddings = self._transform_bbox(self.bbox)
                 seg = self._infer(sparse_embedding, dense_embeddings)
                 torch.cuda.empty_cache()
-
+            
+            self.segs[idx] = seg
             self.segs.append(copy.deepcopy(seg))
             gc.collect()
             
              # display the process in the progress bar (takes percentage)
             self.progressbar['value'] = (idx/len(slice_range)) * 100
             self.window.update_idletasks()
-        
+        """
+
         segs_array = np.stack(self.segs, axis=0) # segmentations of just selected slices
 
         # Update the segmented organs list with the new segmentation result
-    
         complete_array = self.place_in_3d_array(segs_array)
         
         # If I name organ is not yet in segmented organs list, Update the segmented organs list
@@ -324,6 +443,28 @@ class BboxPromptDemo:
         self.window.destroy() # Close pop up window
 
         # messagebox.showinfo("Saved", "Segmentation result saved to segs.nrrd")
+        
+    def visualize_bbox_opencv(image, bbox, title="Segmentation with BBox"):
+        """
+        Visualizes the image with a bounding box using OpenCV.
+
+        Args:
+            image (np.ndarray): The slice to visualize.
+            bbox (list or np.ndarray): The bounding box [x_min, y_min, x_max, y_max].
+            title (str): Title of the window.
+        """
+        img_copy = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        cv2.rectangle(
+            img_copy, 
+            (bbox[1], bbox[0]),  # (y_min, x_min)
+            (bbox[3], bbox[2]),  # (y_max, x_max)
+            (0, 0, 255),  # Red color in BGR
+            2  # Thickness
+        )
+        cv2.imshow(title, img_copy)
+        cv2.waitKey(0)  # Wait for key press to proceed
+        cv2.destroyAllWindows()
+    
     def place_in_3d_array(self, mask_array):
         dummy_list = np.zeros(self.readdata.shape)
         if self.plane == 0:            
@@ -350,7 +491,7 @@ class BboxPromptDemo:
 
         return image
     
-    def show(self, image, random_color=True, alpha=0.65):
+    def show(self, image, random_color=True, alpha=0.4):
         """Display the image and run the segmentation demo.
             Args:
                 image: File path or NumPy array.
