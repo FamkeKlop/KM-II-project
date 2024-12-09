@@ -40,7 +40,7 @@ class App:
         self.image = None  # To store the loaded image
         self.readdata = None  # To store the loaded NRRD data
         self.slice_index = 0  # Initialize slice index
-        self.current_plane = 0  # Initialize current plane index (0: axial, 1: coronal, 2: sagittal)
+        self.current_plane = 0  # Initialize current plane index (0: sagittal, 1: axial, 2: coronal)  (0: axial, 1: coronal, 2: sagittal)
         self.current_image = None
         self.button_font = tkFont.Font(family="Helvetica", size=11)
         self.slice_rgb = None  # To store the specific slice for segmentation
@@ -59,7 +59,7 @@ class App:
         self.medsam_model.eval()
 
         # Define plane labels
-        self.planes = ['Axial', 'Coronal', 'Sagittal']
+        self.planes = ['Sagittal', 'Axial', 'Coronal']
 
         # UI Elements
         self.setup_ui_elements()
@@ -123,20 +123,20 @@ class App:
         # # Checkboxes
         self.plane_var = tk.IntVar(value=0)
 
-        self.axial_checkbox = tk.Radiobutton(self.plane_frame, text="Axial", variable=self.plane_var, value=0,
+        self.sag_checkbox = tk.Radiobutton(self.plane_frame, text="Sagittal", variable=self.plane_var, value=0,
         command=self.set_plane_for_range)
-        self.axial_checkbox.grid(row=0, column=0, padx=(0, 10), sticky="w")
-        self.axial_checkbox.grid_remove()
+        self.sag_checkbox.grid(row=0, column=0, padx=(0, 10), sticky="w")
+        self.sag_checkbox.grid_remove()
 
-        self.coronal_checkbox = tk.Radiobutton(self.plane_frame, text="Coronal", variable=self.plane_var, value=1,
+        self.ax_checkbox = tk.Radiobutton(self.plane_frame, text="Axial", variable=self.plane_var, value=1,
         command=self.set_plane_for_range)
-        self.coronal_checkbox.grid(row=0, column=1, padx=(10, 10), sticky="w")
-        self.coronal_checkbox.grid_remove()
+        self.ax_checkbox.grid(row=0, column=1, padx=(10, 10), sticky="w")
+        self.ax_checkbox.grid_remove()
 
-        self.sagittal_checkbox = tk.Radiobutton(self.plane_frame, text="Sagittal", variable=self.plane_var, value=2,
+        self.cor_checkbox = tk.Radiobutton(self.plane_frame, text="Coronal", variable=self.plane_var, value=2,
         command=self.set_plane_for_range)
-        self.sagittal_checkbox.grid(row=0, column=2, padx=(10, 0), sticky="w")
-        self.sagittal_checkbox.grid_remove()
+        self.cor_checkbox.grid(row=0, column=2, padx=(10, 0), sticky="w")
+        self.cor_checkbox.grid_remove()
 
         # Frame for "Begin" and "End" integer entries
         self.range_frame = tk.Frame(self.left_frame)
@@ -428,9 +428,9 @@ class App:
             self.submit_range_button.grid_remove()
             self.segmentation_button.grid_remove()
             self.plane_label.grid_remove()
-            self.axial_checkbox.grid_remove()
-            self.coronal_checkbox.grid_remove()
-            self.sagittal_checkbox.grid_remove()
+            self.sag_checkbox.grid_remove()
+            self.ax_checkbox.grid_remove()
+            self.cor_checkbox.grid_remove()
             self.label_saved_segmentations.grid_remove()
             self.save_segmentations_button.grid_remove()
             return
@@ -443,9 +443,9 @@ class App:
         self.selected_organ_label.config(text=new_text, foreground = 'black', font=('Helvetica', 11,'bold'))
         self.selected_organ_label.grid()    
         self.plane_label.grid()
-        self.axial_checkbox.grid()
-        self.coronal_checkbox.grid()
-        self.sagittal_checkbox.grid()
+        self.sag_checkbox.grid()
+        self.ax_checkbox.grid()
+        self.cor_checkbox.grid()
 
         self.begin_label.grid()  
         self.begin_entry.grid()
@@ -652,9 +652,9 @@ class App:
         self.submit_range_button.grid_remove()
         self.segmentation_button.grid_remove()
         self.plane_label.grid_remove()
-        self.axial_checkbox.grid_remove()
-        self.coronal_checkbox.grid_remove()
-        self.sagittal_checkbox.grid_remove()
+        self.sag_checkbox.grid_remove()
+        self.ax_checkbox.grid_remove()
+        self.cor_checkbox.grid_remove()
         #self.label_saved_segmentations.grid_remove()
         #self.save_segmentations_button.grid_remove()
     
