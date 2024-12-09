@@ -55,3 +55,6 @@ def dice_coef(image_1, image_2):
     intersection = np.sum(image_1 * image_2)
     union = np.sum(image_1) + np.sum(image_2)
     return intersection / union
+
+
+

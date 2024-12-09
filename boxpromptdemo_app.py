@@ -236,7 +236,7 @@ class BboxPromptDemo:
         medsam_seg = (low_res_pred > 0.5).astype(np.uint8)
         return medsam_seg
 
-    def show_mask(self, mask, random_color=True, alpha=0.95):
+    def show_mask(self, mask, random_color=True, alpha=0.4):
         """Display the segmentation mask on the canvas.
             Args:
                 mask: 2D NumPy array (Height, Width).
